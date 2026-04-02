@@ -135,6 +135,8 @@ cd rust
   --held-out-validation passed
 ```
 
+`validate` 现在会补充 warning 和 remediation 建议，便于在 promotion 前做最后检查。
+
 详细说明：
 
 - [`docs/project-skill-synthesis.md`](docs/project-skill-synthesis.md)

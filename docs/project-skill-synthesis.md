@@ -68,6 +68,12 @@ cd rust
 ./target/debug/claw project-skill validate ./.claw/project-skills/survey-cleaning-sop
 ```
 
+`validate` 现在除了 pass/fail 之外，还会给出：
+
+- 当前 maturity / verification / held-out 状态
+- warning 数量与具体 warning
+- 下一步 remediation 建议
+
 Promotion example:
 
 ```bash

@@ -2675,6 +2675,17 @@ fn read_project_skill_metadata(skill_root: &Path) -> Result<serde_json::Value, B
     Ok(serde_json::from_str(&raw)?)
 }
 
+fn metadata_string<'a>(value: &'a serde_json::Value, field: &str) -> Option<&'a str> {
+    value.get(field).and_then(|entry| entry.as_str())
+}
+
+fn metadata_array<'a>(
+    value: &'a serde_json::Value,
+    field: &str,
+) -> Option<&'a Vec<serde_json::Value>> {
+    value.get(field).and_then(|entry| entry.as_array())
+}
+
 fn validate_project_skill_metadata(value: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
     let required_fields = [
         "source_materials",
@@ -2795,16 +2806,145 @@ fn validate_project_skill_metadata(value: &serde_json::Value) -> Result<(), Box<
     Ok(())
 }
 
+fn project_skill_warnings_and_remediation(
+    value: &serde_json::Value,
+    skill_root: &Path,
+) -> (Vec<String>, Vec<String>) {
+    let mut warnings = Vec::new();
+    let mut remediation = Vec::new();
+
+    let maturity = metadata_string(value, "maturity_level").unwrap_or("unknown");
+    let verification_status = metadata_string(value, "verification_status").unwrap_or("unknown");
+    let held_out_validation_status =
+        metadata_string(value, "held_out_validation_status").unwrap_or("unknown");
+
+    if maturity == "draft" {
+        warnings.push("skill is still at draft maturity".to_string());
+        remediation.push(format!(
+            "promote after validation: claw project-skill promote {} --to project --held-out-validation passed",
+            skill_root.display()
+        ));
+    }
+
+    if verification_status == "drafted" {
+        warnings.push("verification_status is still drafted".to_string());
+        remediation.push(
+            "run at least one realistic example, then update verification via project-skill promote"
+                .to_string(),
+        );
+    } else if verification_status == "example-validated" && held_out_validation_status != "passed" {
+        warnings.push("held-out validation has not passed yet".to_string());
+        remediation.push(
+            "run a held-out example and then promote with --held-out-validation passed".to_string(),
+        );
+    }
+
+    if held_out_validation_status == "pending" {
+        warnings.push("held_out_validation_status is pending".to_string());
+        remediation.push(
+            "record the outcome of a held-out evaluation before treating this as reusable beyond the source material".to_string(),
+        );
+    } else if held_out_validation_status == "failed" {
+        warnings.push("held_out_validation_status is failed".to_string());
+        remediation.push(
+            "revise the workflow and re-run held-out validation before promotion".to_string(),
+        );
+    }
+
+    if let Some(sources) = metadata_array(value, "source_materials") {
+        let missing_sources = sources
+            .iter()
+            .filter(|entry| entry.get("exists").and_then(|flag| flag.as_bool()) == Some(false))
+            .count();
+        if missing_sources > 0 {
+            warnings.push(format!(
+                "{missing_sources} source material reference(s) are unresolved"
+            ));
+            remediation.push(
+                "replace missing references with resolvable local files or add verified source provenance"
+                    .to_string(),
+            );
+        }
+    }
+
+    if let Some(examples) = metadata_array(value, "evaluation_examples") {
+        let pending_examples = examples
+            .iter()
+            .filter_map(|entry| entry.as_str())
+            .filter(|item| item.to_ascii_lowercase().contains("pending validation"))
+            .count();
+        if pending_examples > 0 {
+            warnings.push(format!(
+                "{pending_examples} evaluation example(s) still contain pending placeholders"
+            ));
+            remediation.push(
+                "replace placeholder evaluation examples with concrete project and held-out runs"
+                    .to_string(),
+            );
+        }
+    }
+
+    if let Some(checks) = metadata_array(value, "failure_checks") {
+        let weak_checks = checks
+            .iter()
+            .filter_map(|entry| entry.as_str())
+            .filter(|item| item.to_ascii_lowercase().contains("unclear"))
+            .count();
+        if weak_checks > 0 {
+            warnings.push("failure checks still contain generic placeholder language".to_string());
+            remediation.push(
+                "rewrite failure checks so they mention concrete stop conditions and review triggers"
+                    .to_string(),
+            );
+        }
+    }
+
+    (warnings, remediation)
+}
+
 fn validate_project_skill_path(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
     let skill_root = resolve_project_skill_root(path)?;
     ensure_project_skill_files(&skill_root)?;
     let value = read_project_skill_metadata(&skill_root)?;
     validate_project_skill_metadata(&value)?;
+    let (warnings, remediation) = project_skill_warnings_and_remediation(&value, &skill_root);
 
-    Ok(format!(
-        "Project skill validation\n  Result           valid\n  Skill root       {}",
-        skill_root.display()
-    ))
+    let maturity = metadata_string(&value, "maturity_level").unwrap_or("unknown");
+    let verification_status =
+        metadata_string(&value, "verification_status").unwrap_or("unknown");
+    let held_out_validation_status =
+        metadata_string(&value, "held_out_validation_status").unwrap_or("unknown");
+
+    let mut lines = vec![
+        "Project skill validation".to_string(),
+        "  Result           valid".to_string(),
+        format!("  Skill root       {}", skill_root.display()),
+        format!("  Maturity         {maturity}"),
+        format!("  Verification     {verification_status}"),
+        format!("  Held-out         {held_out_validation_status}"),
+    ];
+
+    if warnings.is_empty() {
+        lines.push("  Warnings         none".to_string());
+    } else {
+        lines.push(format!("  Warnings         {}", warnings.len()));
+        lines.push("Warnings".to_string());
+        for warning in warnings {
+            lines.push(format!("  - {warning}"));
+        }
+    }
+
+    if remediation.is_empty() {
+        lines.push("Remediation".to_string());
+        lines.push("  - no action required".to_string());
+    } else {
+        lines.push("Remediation".to_string());
+        for item in remediation {
+            lines.push(format!("  - {item}"));
+        }
+    }
+
+    Ok(lines.join("\n"))
 }
 
 fn promote_project_skill(
@@ -4745,9 +4885,9 @@ mod tests {
         normalize_permission_mode, parse_args, parse_git_status_metadata, permission_policy,
         print_help_to, push_output_block, render_config_report, render_memory_report,
         render_repl_help, resolve_client_selection, resolve_model_alias, response_to_events,
-        resume_supported_slash_commands, status_context, CliAction, CliOutputFormat, InitOptions,
-        InitResearchProfile, InternalPromptProgressEvent, InternalPromptProgressState,
-        ProjectSkillCommand, SlashCommand, StatusUsage,
+        resume_supported_slash_commands, status_context, validate_project_skill_path, CliAction,
+        CliOutputFormat, InitOptions, InitResearchProfile, InternalPromptProgressEvent,
+        InternalPromptProgressState, ProjectSkillCommand, SlashCommand, StatusUsage,
     };
     use api::{MessageResponse, OutputContentBlock, Usage};
     use plugins::{PluginTool, PluginToolDefinition, PluginToolPermission};
@@ -5335,6 +5475,64 @@ mod tests {
                 }
             }
         );
+    }
+
+    #[test]
+    fn validate_project_skill_reports_warnings_and_remediation() {
+        let root = temp_dir().join("skill-warning-case");
+        fs::create_dir_all(&root).expect("temp skill root should be creatable");
+        fs::write(root.join("SKILL.md"), "# Draft Skill\n").expect("skill md should write");
+        fs::write(root.join("README.md"), "# Draft Skill\n").expect("readme should write");
+        fs::write(
+            root.join("skill.json"),
+            serde_json::to_string_pretty(&json!({
+                "name": "survey-cleaning-sop",
+                "title": "Survey Cleaning SOP",
+                "description": "Draft workflow",
+                "domain": "survey",
+                "generated_at": "2026-04-02T00:00:00Z",
+                "generated_by": "claw project-skill init",
+                "use_when": "Use before scoring",
+                "input_expectations": ["Approved questionnaire codebook"],
+                "workflow": ["Review questionnaire structure"],
+                "outputs": ["SKILL.md draft"],
+                "limits": ["Draft only"],
+                "failure_checks": ["Stop if required inputs are unclear"],
+                "evaluation_examples": [
+                    "Primary project example: pending validation",
+                    "Held-out example: pending validation"
+                ],
+                "verification_status": "drafted",
+                "held_out_validation_status": "pending",
+                "maturity_level": "draft",
+                "source_materials": [
+                    {"path": "missing-source.md", "exists": false, "sha256": serde_json::Value::Null}
+                ]
+            }))
+            .expect("json should serialize"),
+        )
+        .expect("skill json should write");
+
+        let report =
+            validate_project_skill_path(&root).expect("draft skill should validate with warnings");
+        assert!(
+            report.contains("Warnings"),
+            "validation report should contain warnings section: {report}"
+        );
+        assert!(
+            report.contains("skill is still at draft maturity"),
+            "validation report should mention draft warning: {report}"
+        );
+        assert!(
+            report.contains("Remediation"),
+            "validation report should contain remediation section: {report}"
+        );
+        assert!(
+            report.contains("promote after validation"),
+            "validation report should include remediation guidance: {report}"
+        );
+
+        fs::remove_dir_all(&root).expect("temp skill root should clean up");
     }
 
     #[test]

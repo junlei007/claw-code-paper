@@ -55,6 +55,8 @@ survey_metadata
 ./target/debug/claw project-skill validate ./.claw/project-skills/survey-cleaning-sop
 ```
 
+这个校验现在会额外显示 warning 和 remediation 建议。
+
 提升成熟度：
 
 ```bash

@@ -123,6 +123,14 @@ cd rust
   --held-out-validation passed
 ```
 
+在 promotion 之前，先跑一次：
+
+```bash
+./target/debug/claw project-skill validate ./.claw/project-skills/<slug>
+```
+
+现在 `validate` 会直接输出 warning 和 remediation 建议，适合在真正升档前先做最后一轮检查。
+
 ### `project` -> `published`
 
 至少确认：
