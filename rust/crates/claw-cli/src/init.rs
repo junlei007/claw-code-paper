@@ -9,7 +9,37 @@ const STARTER_CLAW_JSON: &str = concat!(
     "}\n",
 );
 const GITIGNORE_COMMENT: &str = "# Claw Code local artifacts";
-const GITIGNORE_ENTRIES: [&str; 2] = [".claw/settings.local.json", ".claw/sessions/"];
+const GITIGNORE_ENTRIES: [&str; 3] = [
+    ".claw/settings.local.json",
+    ".claw/sessions/",
+    ".claw/artifacts/",
+];
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum InitResearchProfile {
+    Survey,
+}
+
+impl InitResearchProfile {
+    pub(crate) fn parse(value: &str) -> Option<Self> {
+        match value {
+            "survey" => Some(Self::Survey),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct InitOptions {
+    pub(crate) research_profile: Option<InitResearchProfile>,
+}
+
+impl InitOptions {
+    #[must_use]
+    pub(crate) fn survey_enabled(&self) -> bool {
+        matches!(self.research_profile, Some(InitResearchProfile::Survey))
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum InitStatus {
@@ -39,6 +69,7 @@ pub(crate) struct InitArtifact {
 pub(crate) struct InitReport {
     pub(crate) project_root: PathBuf,
     pub(crate) artifacts: Vec<InitArtifact>,
+    pub(crate) next_step: String,
 }
 
 impl InitReport {
@@ -55,7 +86,7 @@ impl InitReport {
                 artifact.status.label()
             ));
         }
-        lines.push("  Next step        Review and tailor the generated guidance".to_string());
+        lines.push(format!("  Next step        {}", self.next_step));
         lines.join("\n")
     }
 }
@@ -77,7 +108,10 @@ struct RepoDetection {
     rust_dir: bool,
 }
 
-pub(crate) fn initialize_repo(cwd: &Path) -> Result<InitReport, Box<dyn std::error::Error>> {
+pub(crate) fn initialize_repo(
+    cwd: &Path,
+    options: &InitOptions,
+) -> Result<InitReport, Box<dyn std::error::Error>> {
     let mut artifacts = Vec::new();
 
     let claw_dir = cwd.join(".claw");
@@ -98,8 +132,22 @@ pub(crate) fn initialize_repo(cwd: &Path) -> Result<InitReport, Box<dyn std::err
         status: ensure_gitignore_entries(&gitignore)?,
     });
 
+    if options.survey_enabled() {
+        let settings_local = claw_dir.join("settings.local.json");
+        artifacts.push(InitArtifact {
+            name: "settings.local",
+            status: write_file_if_missing(&settings_local, &survey_settings_local_json())?,
+        });
+
+        let artifact_dir = claw_dir.join("artifacts");
+        artifacts.push(InitArtifact {
+            name: "artifacts/",
+            status: ensure_dir(&artifact_dir)?,
+        });
+    }
+
     let claw_md = cwd.join("CLAW.md");
-    let content = render_init_claw_md(cwd);
+    let content = render_init_claw_md(cwd, options);
     artifacts.push(InitArtifact {
         name: "CLAW.md",
         status: write_file_if_missing(&claw_md, &content)?,
@@ -108,6 +156,11 @@ pub(crate) fn initialize_repo(cwd: &Path) -> Result<InitReport, Box<dyn std::err
     Ok(InitReport {
         project_root: cwd.to_path_buf(),
         artifacts,
+        next_step: if options.survey_enabled() {
+            "Set your provider/API key in `.claw/settings.local.json`, then review the generated guidance".to_string()
+        } else {
+            "Review and tailor the generated guidance".to_string()
+        },
     })
 }
 
@@ -159,7 +212,36 @@ fn ensure_gitignore_entries(path: &Path) -> Result<InitStatus, std::io::Error> {
     Ok(InitStatus::Updated)
 }
 
-pub(crate) fn render_init_claw_md(cwd: &Path) -> String {
+fn survey_settings_local_json() -> String {
+    concat!(
+        "{\n",
+        "  \"providers\": {\n",
+        "    \"default\": \"survey-openai-compat\",\n",
+        "    \"profiles\": {\n",
+        "      \"survey-openai-compat\": {\n",
+        "        \"type\": \"openai-compat\",\n",
+        "        \"providerName\": \"OpenAI Compatible\",\n",
+        "        \"apiKeyEnv\": \"OPENAI_API_KEY\",\n",
+        "        \"baseUrl\": \"https://api.openai.com/v1\"\n",
+        "      }\n",
+        "    }\n",
+        "  },\n",
+        "  \"research\": {\n",
+        "    \"enabled\": true,\n",
+        "    \"profile\": \"survey\",\n",
+        "    \"artifactDir\": \".claw/artifacts\"\n",
+        "  },\n",
+        "  \"plugins\": {\n",
+        "    \"enabled\": {\n",
+        "      \"research-survey@bundled\": true\n",
+        "    }\n",
+        "  }\n",
+        "}\n",
+    )
+    .to_string()
+}
+
+pub(crate) fn render_init_claw_md(cwd: &Path, options: &InitOptions) -> String {
     let detection = detect_repo(cwd);
     let mut lines = vec![
         "# CLAW.md".to_string(),
@@ -207,9 +289,20 @@ pub(crate) fn render_init_claw_md(cwd: &Path) -> String {
         lines.push(String::new());
     }
 
+    let research_lines = research_workflow_lines(options);
+    if !research_lines.is_empty() {
+        lines.push("## Research workflow".to_string());
+        lines.extend(research_lines);
+        lines.push(String::new());
+    }
+
     lines.push("## Working agreement".to_string());
     lines.push("- Prefer small, reviewable changes and keep generated bootstrap files aligned with actual repo workflows.".to_string());
     lines.push("- Keep shared defaults in `.claw.json`; reserve `.claw/settings.local.json` for machine-local overrides.".to_string());
+    if options.survey_enabled() {
+        lines.push("- Keep the survey workflow on the existing metadata → scoring → psychometrics → report chain instead of inventing ad-hoc one-off analysis flows.".to_string());
+        lines.push("- Treat `.claw/artifacts/` as the default output location for scored datasets, psychometric summaries, and report drafts.".to_string());
+    }
     lines.push("- Do not overwrite existing `CLAW.md` content automatically; update it intentionally when repo workflows change.".to_string());
     lines.push(String::new());
 
@@ -331,9 +424,23 @@ fn framework_notes(detection: &RepoDetection) -> Vec<String> {
     lines
 }
 
+fn research_workflow_lines(options: &InitOptions) -> Vec<String> {
+    if !options.survey_enabled() {
+        return Vec::new();
+    }
+
+    vec![
+        "- Survey profile is enabled; keep provider credentials and local research settings in `.claw/settings.local.json`.".to_string(),
+        "- Default artifact path: `.claw/artifacts/`. Write scored datasets, psychometric outputs, and draft reports there.".to_string(),
+        "- Recommended tool order: `survey_metadata` → `survey_score` → `survey_psychometrics` → `survey_report`.".to_string(),
+        "- Supported ingestion formats currently prioritize CSV, XLSX, SPSS `.sav`, and `.dat` survey exports.".to_string(),
+        "- Prefer Python-backed tools for ingestion/scoring/report drafting and the R-backed tool for reliability, validity checks, and CFA.".to_string(),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{initialize_repo, render_init_claw_md};
+    use super::{initialize_repo, render_init_claw_md, InitOptions, InitResearchProfile};
     use std::fs;
     use std::path::Path;
     use std::sync::atomic::{AtomicU64, Ordering};
@@ -356,7 +463,7 @@ mod tests {
         fs::create_dir_all(root.join("rust")).expect("create rust dir");
         fs::write(root.join("rust").join("Cargo.toml"), "[workspace]\n").expect("write cargo");
 
-        let report = initialize_repo(&root).expect("init should succeed");
+        let report = initialize_repo(&root, &InitOptions::default()).expect("init should succeed");
         let rendered = report.render();
         assert!(rendered.contains(".claw/           created"));
         assert!(rendered.contains(".claw.json       created"));
@@ -378,6 +485,7 @@ mod tests {
         let gitignore = fs::read_to_string(root.join(".gitignore")).expect("read gitignore");
         assert!(gitignore.contains(".claw/settings.local.json"));
         assert!(gitignore.contains(".claw/sessions/"));
+        assert!(gitignore.contains(".claw/artifacts/"));
         let claw_md = fs::read_to_string(root.join("CLAW.md")).expect("read claw md");
         assert!(claw_md.contains("Languages: Rust."));
         assert!(claw_md.contains("cargo clippy --workspace --all-targets -- -D warnings"));
@@ -392,11 +500,13 @@ mod tests {
         fs::write(root.join("CLAW.md"), "custom guidance\n").expect("write existing claw md");
         fs::write(root.join(".gitignore"), ".claw/settings.local.json\n").expect("write gitignore");
 
-        let first = initialize_repo(&root).expect("first init should succeed");
+        let first =
+            initialize_repo(&root, &InitOptions::default()).expect("first init should succeed");
         assert!(first
             .render()
             .contains("CLAW.md          skipped (already exists)"));
-        let second = initialize_repo(&root).expect("second init should succeed");
+        let second =
+            initialize_repo(&root, &InitOptions::default()).expect("second init should succeed");
         let second_rendered = second.render();
         assert!(second_rendered.contains(".claw/           skipped (already exists)"));
         assert!(second_rendered.contains(".claw.json       skipped (already exists)"));
@@ -409,6 +519,43 @@ mod tests {
         let gitignore = fs::read_to_string(root.join(".gitignore")).expect("read gitignore");
         assert_eq!(gitignore.matches(".claw/settings.local.json").count(), 1);
         assert_eq!(gitignore.matches(".claw/sessions/").count(), 1);
+        assert_eq!(gitignore.matches(".claw/artifacts/").count(), 1);
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn initialize_repo_can_scaffold_survey_research_bootstrap() {
+        let root = temp_dir();
+        fs::create_dir_all(root.join("rust")).expect("create rust dir");
+        fs::write(root.join("rust").join("Cargo.toml"), "[workspace]\n").expect("write cargo");
+
+        let report = initialize_repo(
+            &root,
+            &InitOptions {
+                research_profile: Some(InitResearchProfile::Survey),
+            },
+        )
+        .expect("survey init should succeed");
+
+        let rendered = report.render();
+        assert!(rendered.contains("settings.local   created"));
+        assert!(rendered.contains("artifacts/       created"));
+        assert!(rendered.contains("Set your provider/API key in `.claw/settings.local.json`"));
+
+        let settings = fs::read_to_string(root.join(".claw").join("settings.local.json"))
+            .expect("read survey settings");
+        assert!(settings.contains("\"profile\": \"survey\""));
+        assert!(settings.contains("\"research-survey@bundled\": true"));
+        assert!(settings.contains("\"default\": \"survey-openai-compat\""));
+        assert!(root.join(".claw").join("artifacts").is_dir());
+        let claw_md = fs::read_to_string(root.join("CLAW.md")).expect("read survey CLAW.md");
+        assert!(claw_md.contains("## Research workflow"));
+        assert!(claw_md.contains(
+            "survey_metadata` → `survey_score` → `survey_psychometrics` → `survey_report"
+        ));
+        assert!(claw_md.contains("`.claw/artifacts/`"));
+        assert!(claw_md.contains("SPSS `.sav`, and `.dat` survey exports"));
 
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }
@@ -425,11 +572,33 @@ mod tests {
         )
         .expect("write package json");
 
-        let rendered = render_init_claw_md(Path::new(&root));
+        let rendered = render_init_claw_md(Path::new(&root), &InitOptions::default());
         assert!(rendered.contains("Languages: Python, TypeScript."));
         assert!(rendered.contains("Frameworks/tooling markers: Next.js, React."));
         assert!(rendered.contains("pyproject.toml"));
         assert!(rendered.contains("Next.js detected"));
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn render_init_template_adds_survey_workflow_when_enabled() {
+        let root = temp_dir();
+        fs::create_dir_all(root.join("rust")).expect("create rust dir");
+        fs::write(root.join("rust").join("Cargo.toml"), "[workspace]\n").expect("write cargo");
+
+        let rendered = render_init_claw_md(
+            Path::new(&root),
+            &InitOptions {
+                research_profile: Some(InitResearchProfile::Survey),
+            },
+        );
+        assert!(rendered.contains("## Research workflow"));
+        assert!(rendered.contains(".claw/settings.local.json"));
+        assert!(rendered.contains(
+            "survey_metadata` → `survey_score` → `survey_psychometrics` → `survey_report"
+        ));
+        assert!(rendered.contains("reliability, validity checks, and CFA"));
 
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }

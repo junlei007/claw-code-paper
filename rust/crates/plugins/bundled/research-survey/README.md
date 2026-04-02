@@ -13,6 +13,30 @@
 
 ---
 
+## 0. 最短使用路径
+
+如果你是从一个全新研究项目开始，最短路径不是先手写配置，而是：
+
+```bash
+claw init --research survey
+```
+
+这会先帮你生成：
+
+- `.claw/settings.local.json`
+- `.claw/artifacts/`
+- survey-aware 的 `CLAW.md`
+
+然后再按这条链路工作：
+
+```text
+survey_metadata -> survey_score -> survey_psychometrics -> survey_report
+```
+
+如果你是从插件开发/调试视角阅读本文，继续往下看各 tool 的输入输出和本地运行示例即可。
+
+---
+
 ## 1. 适合什么任务
 
 当前版本优先覆盖的是**问卷研究 / 社科 / 教育 / 心理 / 用户研究**中最常见的数据分析链路：
@@ -93,9 +117,12 @@
 
 ### 标准流程
 
-1. 配置模型提供方（不限 Claude，可用 OpenAI-compatible / DeepSeek）
-2. 打开 `research.profile = "survey"`
-3. 启用 `research-survey@bundled`
+1. 运行 `claw init --research survey`
+2. 配置模型提供方（不限 Claude，可用 OpenAI-compatible / DeepSeek）
+3. 检查 `.claw/settings.local.json` 中：
+   - `research.profile = "survey"`
+   - `research-survey@bundled = true`
+   - `artifactDir = ".claw/artifacts"`
 4. 先运行 `survey_metadata`
 5. 再运行 `survey_score`
 6. 然后运行 `survey_psychometrics`

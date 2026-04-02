@@ -27,7 +27,7 @@ use commands::{
     render_slash_command_help, resume_supported_slash_commands, slash_command_specs, SlashCommand,
 };
 use compat_harness::{extract_manifest, UpstreamPaths};
-use init::initialize_repo;
+use init::{initialize_repo, InitOptions, InitResearchProfile};
 use plugins::{PluginManager, PluginManagerConfig};
 use render::{MarkdownStreamState, Spinner, TerminalRenderer};
 use runtime::{
@@ -116,7 +116,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             .run_turn_with_output(&prompt, output_format)?,
         CliAction::Login => run_login()?,
         CliAction::Logout => run_logout()?,
-        CliAction::Init => run_init()?,
+        CliAction::Init { options } => run_init(&options)?,
         CliAction::Repl {
             model,
             provider,
@@ -157,7 +157,9 @@ enum CliAction {
     },
     Login,
     Logout,
-    Init,
+    Init {
+        options: InitOptions,
+    },
     Repl {
         model: Option<String>,
         provider: Option<String>,
@@ -326,7 +328,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         "system-prompt" => parse_system_prompt_args(&rest[1..]),
         "login" => Ok(CliAction::Login),
         "logout" => Ok(CliAction::Logout),
-        "init" => Ok(CliAction::Init),
+        "init" => parse_init_args(&rest[1..]),
         "prompt" => {
             let prompt = rest[1..].join(" ");
             if prompt.trim().is_empty() {
@@ -357,6 +359,46 @@ fn join_optional_args(args: &[String]) -> Option<String> {
     let joined = args.join(" ");
     let trimmed = joined.trim();
     (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+fn parse_init_args(args: &[String]) -> Result<CliAction, String> {
+    let mut options = InitOptions::default();
+    let mut index = 0;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--help" | "-h" => return Ok(CliAction::Help),
+            "--research" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --research".to_string())?;
+                options.research_profile =
+                    Some(InitResearchProfile::parse(value).ok_or_else(|| {
+                        format!("unsupported research profile '{value}'. Use: survey")
+                    })?);
+                index += 2;
+            }
+            flag if flag.starts_with("--research=") => {
+                let value = &flag["--research=".len()..];
+                options.research_profile =
+                    Some(InitResearchProfile::parse(value).ok_or_else(|| {
+                        format!("unsupported research profile '{value}'. Use: survey")
+                    })?);
+                index += 1;
+            }
+            other => {
+                options.research_profile =
+                    Some(InitResearchProfile::parse(other).ok_or_else(|| {
+                        format!(
+                            "unknown init flag or research profile '{other}'. Use --research survey or `claw init survey`."
+                        )
+                    })?);
+                index += 1;
+            }
+        }
+    }
+
+    Ok(CliAction::Init { options })
 }
 
 fn parse_direct_slash_cli_action(rest: &[String]) -> Result<CliAction, String> {
@@ -937,7 +979,7 @@ fn run_resume_command(
         }),
         SlashCommand::Init => Ok(ResumeCommandOutcome {
             session: session.clone(),
-            message: Some(init_claw_md()?),
+            message: Some(init_claw_md(&InitOptions::default())?),
         }),
         SlashCommand::Diff => Ok(ResumeCommandOutcome {
             session: session.clone(),
@@ -1110,13 +1152,12 @@ impl LiveCli {
             .as_deref()
             .map_or_else(|| "auto".to_string(), ToOwned::to_owned);
         format!(
-            "\x1b[38;5;215m▖▘  ▝▗\x1b[0m  \x1b[1mOwl CLI v{VERSION}\x1b[0m\n\
-\x1b[38;5;215m▗▝▖▗▝▗\x1b[0m  \x1b[2m{} · {}\x1b[0m\n\
-\x1b[38;5;215m▗ ▝▘ ▗\x1b[0m  \x1b[2m{}\x1b[0m\n\
-\x1b[38;5;215m▝▗    ▖▘\x1b[0m\n\
-\x1b[38;5;215m ▝▖▗▖▘\x1b[0m   \x1b[2mPermissions\x1b[0m  {}\n\
-\x1b[38;5;215m━━▝▘▝▘━━\x1b[0m   \x1b[2mSession\x1b[0m      {}\n\n\
-  \x1b[2mWorkflow\x1b[0m         metadata → scoring → psychometrics → report\n\
+            "\x1b[38;5;173m▖▘  ▝▗\x1b[0m     \x1b[1mOwl CLI v{VERSION}\x1b[0m\n\
+\x1b[38;5;173m▗▝▖▗▝▗\x1b[0m     \x1b[2m{} · {}\x1b[0m\n\
+\x1b[38;5;173m▗ ▝▘ ▗\x1b[0m     \x1b[2m{}\x1b[0m\n\
+\x1b[38;5;173m▝▗    ▖▘\x1b[0m   \x1b[2mPermissions\x1b[0m  {}\n\
+\x1b[38;5;173m ▝▖▗▖▘\x1b[0m     \x1b[2mSession\x1b[0m      {}\n\
+\x1b[38;5;173m━━▝▘▝▘━━\x1b[0m   \x1b[2mWorkflow\x1b[0m     metadata → scoring → psychometrics → report\n\n\
   Type \x1b[1m/help\x1b[0m for commands · \x1b[2mShift+Enter\x1b[0m for newline",
             self.model,
             provider,
@@ -1294,7 +1335,7 @@ impl LiveCli {
                 false
             }
             SlashCommand::Init => {
-                run_init()?;
+                run_init(&InitOptions::default())?;
                 false
             }
             SlashCommand::Diff => {
@@ -2119,13 +2160,13 @@ fn render_memory_report() -> Result<String, Box<dyn std::error::Error>> {
     ))
 }
 
-fn init_claw_md() -> Result<String, Box<dyn std::error::Error>> {
+fn init_claw_md(options: &InitOptions) -> Result<String, Box<dyn std::error::Error>> {
     let cwd = env::current_dir()?;
-    Ok(initialize_repo(&cwd)?.render())
+    Ok(initialize_repo(&cwd, options)?.render())
 }
 
-fn run_init() -> Result<(), Box<dyn std::error::Error>> {
-    println!("{}", init_claw_md()?);
+fn run_init(options: &InitOptions) -> Result<(), Box<dyn std::error::Error>> {
+    println!("{}", init_claw_md(options)?);
     Ok(())
 }
 
@@ -3896,7 +3937,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(out, "  {cli_name} login")?;
     writeln!(out, "  {cli_name} logout")?;
-    writeln!(out, "  {cli_name} init")?;
+    writeln!(out, "  {cli_name} init [--research survey]")?;
     writeln!(out)?;
     writeln!(out, "Flags:")?;
     writeln!(
@@ -3954,7 +3995,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "  {cli_name} agents")?;
     writeln!(out, "  {cli_name} /skills")?;
     writeln!(out, "  {cli_name} login")?;
-    writeln!(out, "  {cli_name} init")?;
+    writeln!(out, "  {cli_name} init --research survey")?;
     Ok(())
 }
 
@@ -3972,8 +4013,9 @@ mod tests {
         normalize_permission_mode, parse_args, parse_git_status_metadata, permission_policy,
         print_help_to, push_output_block, render_config_report, render_memory_report,
         render_repl_help, resolve_client_selection, resolve_model_alias, response_to_events,
-        resume_supported_slash_commands, status_context, CliAction, CliOutputFormat,
-        InternalPromptProgressEvent, InternalPromptProgressState, SlashCommand, StatusUsage,
+        resume_supported_slash_commands, status_context, CliAction, CliOutputFormat, InitOptions,
+        InitResearchProfile, InternalPromptProgressEvent, InternalPromptProgressState,
+        SlashCommand, StatusUsage,
     };
     use api::{MessageResponse, OutputContentBlock, Usage};
     use plugins::{PluginTool, PluginToolDefinition, PluginToolPermission};
@@ -4307,7 +4349,31 @@ mod tests {
         );
         assert_eq!(
             parse_args(&["init".to_string()]).expect("init should parse"),
-            CliAction::Init
+            CliAction::Init {
+                options: InitOptions::default()
+            }
+        );
+        assert_eq!(
+            parse_args(&[
+                "init".to_string(),
+                "--research".to_string(),
+                "survey".to_string(),
+            ])
+            .expect("survey init should parse"),
+            CliAction::Init {
+                options: InitOptions {
+                    research_profile: Some(InitResearchProfile::Survey),
+                }
+            }
+        );
+        assert_eq!(
+            parse_args(&["init".to_string(), "survey".to_string()])
+                .expect("survey shorthand init should parse"),
+            CliAction::Init {
+                options: InitOptions {
+                    research_profile: Some(InitResearchProfile::Survey),
+                }
+            }
         );
         assert_eq!(
             parse_args(&["agents".to_string()]).expect("agents should parse"),
@@ -4528,7 +4594,7 @@ mod tests {
         let mut help = Vec::new();
         print_help_to(&mut help).expect("help should render");
         let help = String::from_utf8(help).expect("help should be utf8");
-        assert!(help.contains("claw init"));
+        assert!(help.contains("claw init [--research survey]"));
         assert!(help.contains("claw agents"));
         assert!(help.contains("claw skills"));
         assert!(help.contains("claw /skills"));
@@ -4702,7 +4768,8 @@ mod tests {
 
     #[test]
     fn init_template_mentions_detected_rust_workspace() {
-        let rendered = crate::init::render_init_claw_md(std::path::Path::new("."));
+        let rendered =
+            crate::init::render_init_claw_md(std::path::Path::new("."), &InitOptions::default());
         assert!(rendered.contains("# CLAW.md"));
         assert!(rendered.contains("cargo clippy --workspace --all-targets -- -D warnings"));
     }

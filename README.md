@@ -15,6 +15,35 @@
 
 ---
 
+## 先看这里
+
+如果你现在只想尽快把 **survey 模式** 跑起来，建议按这个顺序阅读：
+
+1. 仓库级定位：当前这个 README
+2. Rust workspace / CLI / runtime：
+   [`rust/README.md`](rust/README.md)
+3. survey 插件能力、tool contract、样例输入：
+   [`rust/crates/plugins/bundled/research-survey/README.md`](rust/crates/plugins/bundled/research-survey/README.md)
+
+最短上手路径：
+
+```bash
+cd rust
+~/.cargo/bin/cargo build -p claw-cli
+./target/debug/claw init --research survey
+```
+
+然后：
+
+1. 填好 `.claw/settings.local.json` 的 provider / API key
+2. 用这条链路工作：
+
+```text
+survey_metadata -> survey_score -> survey_psychometrics -> survey_report
+```
+
+---
+
 ## 当前项目定位
 
 这个仓库现在的目标可以概括成一句话：
@@ -195,6 +224,31 @@ cd rust
 ---
 
 ## 配置科研分析模式
+
+### 推荐方式：直接使用 survey bootstrap
+
+当前最推荐的入口不是手写配置，而是：
+
+```bash
+cd rust
+./target/debug/claw init --research survey
+```
+
+它会自动生成：
+
+- `.claw.json`
+- `.claw/settings.local.json`
+- `.claw/artifacts/`
+- `CLAW.md`
+
+其中生成的 `CLAW.md` 已经包含：
+
+- survey workflow
+- artifact 路径
+- 推荐工具顺序
+- Python / R 双后端职责分工
+
+### 手动配置方式（用于自定义 provider/profile）
 
 推荐在项目根目录放一个本地配置文件：
 

@@ -12,6 +12,35 @@
 
 ---
 
+## 最短上手路径
+
+如果你来 `rust/` 目录，目标只是尽快把 survey 模式跑起来，先走这条路径：
+
+```bash
+cd rust
+~/.cargo/bin/cargo build -p claw-cli
+./target/debug/claw init --research survey
+```
+
+然后做三件事：
+
+1. 在项目目录里填写 `.claw/settings.local.json`
+2. 确认 `.claw/artifacts/` 已创建
+3. 按顺序使用：
+
+```text
+survey_metadata
+  -> survey_score
+  -> survey_psychometrics
+  -> survey_report
+```
+
+如果你要看 survey tool 的详细输入/输出契约，直接跳到：
+
+- [`crates/plugins/bundled/research-survey/README.md`](crates/plugins/bundled/research-survey/README.md)
+
+---
+
 ## Workspace 定位
 
 当前 Rust workspace 的角色是：
@@ -93,6 +122,25 @@ survey_metadata
 ---
 
 ## 本地配置示例
+
+### 推荐入口：先用 bootstrap 生成本地配置
+
+最推荐的方式是先运行：
+
+```bash
+./target/debug/claw init --research survey
+```
+
+它会为当前项目生成：
+
+- `.claw.json`
+- `.claw/settings.local.json`
+- `.claw/artifacts/`
+- `CLAW.md`
+
+生成后的 `CLAW.md` 会直接写出 survey workflow、artifact 路径，以及 Python/R 双后端分工。
+
+### 手动配置示例
 
 Rust runtime 会读取项目配置与本地配置。推荐在仓库根目录使用：
 
