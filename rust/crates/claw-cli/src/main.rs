@@ -196,9 +196,12 @@ enum ProjectSkillCommand {
         domain: String,
         use_when: String,
         sources: Vec<String>,
+        input_expectations: Vec<String>,
         workflow_steps: Vec<String>,
         outputs: Vec<String>,
         limits: Vec<String>,
+        failure_checks: Vec<String>,
+        evaluation_examples: Vec<String>,
         generated_by: String,
         maturity: String,
         output_root: Option<PathBuf>,
@@ -479,9 +482,12 @@ fn parse_project_skill_init_args(args: &[String]) -> Result<CliAction, String> {
     let mut domain = None;
     let mut use_when = None;
     let mut sources = Vec::new();
+    let mut input_expectations = Vec::new();
     let mut workflow_steps = Vec::new();
     let mut outputs = Vec::new();
     let mut limits = Vec::new();
+    let mut failure_checks = Vec::new();
+    let mut evaluation_examples = Vec::new();
     let mut generated_by = "claw project-skill init".to_string();
     let mut maturity = "draft".to_string();
     let mut output_root = None;
@@ -533,6 +539,14 @@ fn parse_project_skill_init_args(args: &[String]) -> Result<CliAction, String> {
                 );
                 index += 2;
             }
+            "--input-expectation" => {
+                input_expectations.push(
+                    args.get(index + 1)
+                        .ok_or_else(|| "missing value for --input-expectation".to_string())?
+                        .clone(),
+                );
+                index += 2;
+            }
             "--workflow-step" => {
                 workflow_steps.push(
                     args.get(index + 1)
@@ -553,6 +567,22 @@ fn parse_project_skill_init_args(args: &[String]) -> Result<CliAction, String> {
                 limits.push(
                     args.get(index + 1)
                         .ok_or_else(|| "missing value for --limit".to_string())?
+                        .clone(),
+                );
+                index += 2;
+            }
+            "--failure-check" => {
+                failure_checks.push(
+                    args.get(index + 1)
+                        .ok_or_else(|| "missing value for --failure-check".to_string())?
+                        .clone(),
+                );
+                index += 2;
+            }
+            "--evaluation-example" => {
+                evaluation_examples.push(
+                    args.get(index + 1)
+                        .ok_or_else(|| "missing value for --evaluation-example".to_string())?
                         .clone(),
                 );
                 index += 2;
@@ -620,9 +650,12 @@ fn parse_project_skill_init_args(args: &[String]) -> Result<CliAction, String> {
             use_when: use_when
                 .ok_or_else(|| "project-skill init requires --use-when".to_string())?,
             sources,
+            input_expectations,
             workflow_steps,
             outputs,
             limits,
+            failure_checks,
+            evaluation_examples,
             generated_by,
             maturity,
             output_root,
@@ -2432,9 +2465,12 @@ fn run_project_skill_command(
             domain,
             use_when,
             sources,
+            input_expectations,
             workflow_steps,
             outputs,
             limits,
+            failure_checks,
+            evaluation_examples,
             generated_by,
             maturity,
             output_root,
@@ -2461,6 +2497,9 @@ fn run_project_skill_command(
             for source in sources {
                 process.arg("--source").arg(source);
             }
+            for input in input_expectations {
+                process.arg("--input-expectation").arg(input);
+            }
             for step in workflow_steps {
                 process.arg("--workflow-step").arg(step);
             }
@@ -2469,6 +2508,12 @@ fn run_project_skill_command(
             }
             for limit in limits {
                 process.arg("--limit").arg(limit);
+            }
+            for check in failure_checks {
+                process.arg("--failure-check").arg(check);
+            }
+            for example in evaluation_examples {
+                process.arg("--evaluation-example").arg(example);
             }
             if let Some(root) = output_root {
                 process.arg("--output-root").arg(root);
@@ -2556,7 +2601,10 @@ fn validate_project_skill_path(path: &Path) -> Result<String, Box<dyn std::error
         "workflow",
         "outputs",
         "limits",
+        "failure_checks",
+        "evaluation_examples",
         "verification_status",
+        "held_out_validation_status",
         "maturity_level",
     ];
     let mut missing_fields = Vec::new();
@@ -2571,6 +2619,92 @@ fn validate_project_skill_path(path: &Path) -> Result<String, Box<dyn std::error
             missing_fields.join(", ")
         )
         .into());
+    }
+
+    let required_non_empty_arrays = [
+        "source_materials",
+        "input_expectations",
+        "workflow",
+        "outputs",
+        "limits",
+        "failure_checks",
+        "evaluation_examples",
+    ];
+    let mut empty_fields = Vec::new();
+    for field in required_non_empty_arrays {
+        match value.get(field).and_then(|entry| entry.as_array()) {
+            Some(items) if !items.is_empty() => {}
+            _ => empty_fields.push(field),
+        }
+    }
+    if !empty_fields.is_empty() {
+        return Err(format!(
+            "project-skill metadata requires non-empty arrays for: {}",
+            empty_fields.join(", ")
+        )
+        .into());
+    }
+
+    let maturity = value
+        .get("maturity_level")
+        .and_then(|entry| entry.as_str())
+        .ok_or_else(|| "project-skill maturity_level must be a string".to_string())?;
+    let allowed_maturity = ["draft", "project", "published", "deprecated"];
+    if !allowed_maturity.contains(&maturity) {
+        return Err(format!(
+            "project-skill maturity_level must be one of: {}",
+            allowed_maturity.join(", ")
+        )
+        .into());
+    }
+
+    let verification_status = value
+        .get("verification_status")
+        .and_then(|entry| entry.as_str())
+        .ok_or_else(|| "project-skill verification_status must be a string".to_string())?;
+    let allowed_verification_status = [
+        "drafted",
+        "example-validated",
+        "held-out-validated",
+        "published",
+        "deprecated",
+    ];
+    if !allowed_verification_status.contains(&verification_status) {
+        return Err(format!(
+            "project-skill verification_status must be one of: {}",
+            allowed_verification_status.join(", ")
+        )
+        .into());
+    }
+
+    let held_out_validation_status = value
+        .get("held_out_validation_status")
+        .and_then(|entry| entry.as_str())
+        .ok_or_else(|| "project-skill held_out_validation_status must be a string".to_string())?;
+    let allowed_held_out_status = ["pending", "passed", "failed"];
+    if !allowed_held_out_status.contains(&held_out_validation_status) {
+        return Err(format!(
+            "project-skill held_out_validation_status must be one of: {}",
+            allowed_held_out_status.join(", ")
+        )
+        .into());
+    }
+
+    if matches!(maturity, "project" | "published") && held_out_validation_status != "passed" {
+        return Err(
+            "project/published skills require held_out_validation_status=passed".into(),
+        );
+    }
+    if maturity == "project"
+        && !matches!(verification_status, "held-out-validated" | "published" | "deprecated")
+    {
+        return Err(
+            "project skills require verification_status=held-out-validated (or stronger)"
+                .into(),
+        );
+    }
+    if maturity == "published" && verification_status != "published" {
+        return Err("published skills require verification_status=published".into());
     }
 
     Ok(format!(
@@ -4880,9 +5014,12 @@ mod tests {
                     domain: "survey".to_string(),
                     use_when: "Use before scoring".to_string(),
                     sources: vec!["docs/research-method-standards.md".to_string()],
+                    input_expectations: Vec::new(),
                     workflow_steps: Vec::new(),
                     outputs: Vec::new(),
                     limits: Vec::new(),
+                    failure_checks: Vec::new(),
+                    evaluation_examples: Vec::new(),
                     generated_by: "claw project-skill init".to_string(),
                     maturity: "draft".to_string(),
                     output_root: None,
@@ -4946,15 +5083,72 @@ mod tests {
                     domain: "survey".to_string(),
                     use_when: "Use before scoring".to_string(),
                     sources: vec!["docs/research-method-standards.md".to_string()],
+                    input_expectations: Vec::new(),
                     workflow_steps: Vec::new(),
                     outputs: Vec::new(),
                     limits: Vec::new(),
+                    failure_checks: Vec::new(),
+                    evaluation_examples: Vec::new(),
                     generated_by: "claw project-skill init".to_string(),
                     maturity: "draft".to_string(),
                     output_root: None,
                     targets: vec!["openclaw".to_string(), "claude-command".to_string()],
                     openclaw_root: Some(PathBuf::from(".compat/openclaw")),
                     claude_root: Some(PathBuf::from(".compat/claude")),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn parses_project_skill_governance_flags() {
+        let args = vec![
+            "project-skill".to_string(),
+            "init".to_string(),
+            "survey-cleaning-sop".to_string(),
+            "--title".to_string(),
+            "Survey Cleaning SOP".to_string(),
+            "--description".to_string(),
+            "Draft workflow".to_string(),
+            "--domain".to_string(),
+            "survey".to_string(),
+            "--use-when".to_string(),
+            "Use before scoring".to_string(),
+            "--source".to_string(),
+            "docs/research-method-standards.md".to_string(),
+            "--input-expectation".to_string(),
+            "Approved questionnaire codebook".to_string(),
+            "--failure-check".to_string(),
+            "Stop if reverse-keyed items are ambiguous".to_string(),
+            "--evaluation-example".to_string(),
+            "Held-out pilot dataset walkthrough".to_string(),
+        ];
+        assert_eq!(
+            parse_args(&args).expect("governance flags should parse"),
+            CliAction::ProjectSkill {
+                command: ProjectSkillCommand::Init {
+                    slug: "survey-cleaning-sop".to_string(),
+                    title: "Survey Cleaning SOP".to_string(),
+                    description: "Draft workflow".to_string(),
+                    domain: "survey".to_string(),
+                    use_when: "Use before scoring".to_string(),
+                    sources: vec!["docs/research-method-standards.md".to_string()],
+                    input_expectations: vec!["Approved questionnaire codebook".to_string()],
+                    workflow_steps: Vec::new(),
+                    outputs: Vec::new(),
+                    limits: Vec::new(),
+                    failure_checks: vec![
+                        "Stop if reverse-keyed items are ambiguous".to_string()
+                    ],
+                    evaluation_examples: vec![
+                        "Held-out pilot dataset walkthrough".to_string()
+                    ],
+                    generated_by: "claw project-skill init".to_string(),
+                    maturity: "draft".to_string(),
+                    output_root: None,
+                    targets: Vec::new(),
+                    openclaw_root: None,
+                    claude_root: None,
                 }
             }
         );

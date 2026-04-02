@@ -24,7 +24,10 @@ cd rust
   --domain survey \
   --use-when "Use when a project needs a repeatable local workflow for questionnaire cleaning before scoring." \
   --source ../docs/research-method-standards.md \
-  --source ../docs/research-method-registry.md
+  --source ../docs/research-method-registry.md \
+  --input-expectation "Approved questionnaire codebook" \
+  --failure-check "Stop if reverse-keyed items are ambiguous" \
+  --evaluation-example "Held-out pilot dataset walkthrough"
 ```
 
 or the lower-level scaffold script:
@@ -38,10 +41,13 @@ python3 tools/scaffold_project_skill.py \
   --use-when "Use when a project needs a repeatable local workflow for questionnaire cleaning before scoring." \
   --source docs/research-method-standards.md \
   --source docs/research-method-registry.md \
+  --input-expectation "Approved questionnaire codebook" \
   --workflow-step "Review the approved materials and extract stable procedure steps." \
   --workflow-step "List required inputs, assumptions, and failure checks." \
   --output "Project-local SKILL.md draft" \
-  --output "skill.json metadata"
+  --output "skill.json metadata" \
+  --failure-check "Stop if reverse-keyed items are ambiguous" \
+  --evaluation-example "Held-out pilot dataset walkthrough"
 ```
 
 Generated default location depends on where you invoke the scaffold:
@@ -149,7 +155,10 @@ The generated `skill.json` follows the governance fields from the standards doc:
 - `workflow`
 - `outputs`
 - `limits`
+- `failure_checks`
+- `evaluation_examples`
 - `verification_status`
+- `held_out_validation_status`
 - `maturity_level`
 
 Compatibility exports are adapters around this canonical metadata, not replacements for it.
@@ -223,6 +232,10 @@ Before promoting a draft, test it on at least one realistic project example and 
 
 When the draft is incomplete or risky, say so directly. Prefer actionable warnings and missing-information checks over vague caveats.
 
+Use this checklist when deciding whether a draft is ready to promote:
+
+- [`./self-extension-evaluation-checklist.md`](./self-extension-evaluation-checklist.md)
+
 ---
 
 ## Relationship to external plugins
@@ -235,5 +248,6 @@ If the requested method is missing from the integrated registry:
 See also:
 
 - [`./research-method-registry.md`](./research-method-registry.md)
+- [`./self-extension-evaluation-checklist.md`](./self-extension-evaluation-checklist.md)
 - [`./research-extension-demo.md`](./research-extension-demo.md)
 - [`../examples/external-plugins/research-regression/README.md`](../examples/external-plugins/research-regression/README.md)

@@ -264,6 +264,10 @@ The self-extension loop should also follow a few **agent ergonomics** rules, ada
    - agents may propose refinements after reading transcripts, examples, and failures
    - promotion still requires explicit validation evidence and human review of boundaries, warnings, and method fit
 
+Checklist for applying these gates in practice:
+
+- [`./self-extension-evaluation-checklist.md`](./self-extension-evaluation-checklist.md)
+
 ---
 
 ## 8. New method checklist
