@@ -1,0 +1,55 @@
+{
+  "description": "Governed workflow for questionnaire-based mediation and moderation analysis.",
+  "domain": "survey",
+  "evaluation_examples": [
+    "Primary project example: questionnaire stress -> burnout via coping mediation.",
+    "Held-out example: social support moderates stress -> wellbeing."
+  ],
+  "failure_checks": [
+    "Stop if X, M, Y, or moderator roles are ambiguous.",
+    "Stop if scale scoring or reverse-key handling is not verified."
+  ],
+  "generated_at": "2026-04-02T13:54:16Z",
+  "generated_by": "claw project-skill init",
+  "held_out_validation_status": "passed",
+  "input_expectations": [
+    "Scored questionnaire dataset with clear X/M/Y/W variable definitions",
+    "A preregistered or explicitly stated mediation/moderation hypothesis"
+  ],
+  "limits": [
+    "This skill does not replace statistical review or publication judgment."
+  ],
+  "maturity_level": "project",
+  "name": "questionnaire-mediation-moderation-sop",
+  "outputs": [
+    "Analysis decision log",
+    "Model specification note",
+    "Interpretation checklist for indirect or interaction effects"
+  ],
+  "source_materials": [
+    {
+      "exists": true,
+      "path": "../docs/questionnaire-mediation-moderation-notes.md",
+      "sha256": "157545aa19854a0a039a96a6568a8cbd8db697f6ee7d1d15babaa26e600a2e74"
+    },
+    {
+      "exists": true,
+      "path": "../docs/research-method-standards.md",
+      "sha256": "8223885b1d76ee9c65da2fa3f3df0637957aece16f8fe723be303844a480d812"
+    },
+    {
+      "exists": true,
+      "path": "../docs/project-skill-synthesis.md",
+      "sha256": "80be4a9cbcec69f2cf59753fee263b59eb138a85ccb9d4253cfb091377a05100"
+    }
+  ],
+  "title": "Questionnaire Mediation & Moderation SOP",
+  "use_when": "Use when a questionnaire project needs a mediation or moderation analysis plan before stable tooling is integrated.",
+  "verification_status": "held-out-validated",
+  "workflow": [
+    "Confirm scale scoring, coding direction, and missing-data handling before modeling.",
+    "Choose mediation, moderation, or conditional process framing and document the model variables.",
+    "Select an execution path such as PROCESS-style regression workflow or SEM/lavaan-style path modeling.",
+    "Record bootstrap, interaction-probing, and reporting decisions explicitly."
+  ]
+}

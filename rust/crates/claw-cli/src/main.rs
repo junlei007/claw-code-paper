@@ -2646,7 +2646,9 @@ fn run_project_skill_command(
             let report = validate_project_skill_report(path)?;
             match output_format {
                 CliOutputFormat::Text => println!("{}", report.text),
-                CliOutputFormat::Json => println!("{}", serde_json::to_string_pretty(&report.json)?),
+                CliOutputFormat::Json => {
+                    println!("{}", serde_json::to_string_pretty(&report.json)?)
+                }
             }
             Ok(())
         }
@@ -2664,7 +2666,9 @@ fn run_project_skill_command(
             )?;
             match output_format {
                 CliOutputFormat::Text => println!("{}", report.text),
-                CliOutputFormat::Json => println!("{}", serde_json::to_string_pretty(&report.json)?),
+                CliOutputFormat::Json => {
+                    println!("{}", serde_json::to_string_pretty(&report.json)?)
+                }
             }
             Ok(())
         }
@@ -2672,7 +2676,9 @@ fn run_project_skill_command(
             let report = doctor_project_skill(path)?;
             match output_format {
                 CliOutputFormat::Text => println!("{}", report.text),
-                CliOutputFormat::Json => println!("{}", serde_json::to_string_pretty(&report.json)?),
+                CliOutputFormat::Json => {
+                    println!("{}", serde_json::to_string_pretty(&report.json)?)
+                }
             }
             Ok(())
         }
@@ -2725,7 +2731,9 @@ fn ensure_project_skill_files(skill_root: &Path) -> Result<(), Box<dyn std::erro
     Ok(())
 }
 
-fn read_project_skill_metadata(skill_root: &Path) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+fn read_project_skill_metadata(
+    skill_root: &Path,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let metadata = skill_root.join("skill.json");
     let raw = fs::read_to_string(&metadata)?;
     Ok(serde_json::from_str(&raw)?)
@@ -2742,12 +2750,141 @@ fn metadata_array<'a>(
     value.get(field).and_then(|entry| entry.as_array())
 }
 
+fn metadata_string_items(
+    value: &serde_json::Value,
+    field: &str,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    let items = metadata_array(value, field)
+        .ok_or_else(|| format!("project-skill {field} must be an array"))?;
+    let mut rendered = Vec::with_capacity(items.len());
+    for item in items {
+        let text = item
+            .as_str()
+            .ok_or_else(|| format!("project-skill {field} entries must be strings"))?;
+        rendered.push(text.to_string());
+    }
+    Ok(rendered)
+}
+
+fn render_project_skill_markdown(
+    value: &serde_json::Value,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let name = metadata_string(value, "name")
+        .ok_or_else(|| "project-skill name must be a string".to_string())?;
+    let description = metadata_string(value, "description")
+        .ok_or_else(|| "project-skill description must be a string".to_string())?;
+    let title = metadata_string(value, "title")
+        .ok_or_else(|| "project-skill title must be a string".to_string())?;
+    let domain = metadata_string(value, "domain")
+        .ok_or_else(|| "project-skill domain must be a string".to_string())?;
+    let use_when = metadata_string(value, "use_when")
+        .ok_or_else(|| "project-skill use_when must be a string".to_string())?;
+    let generated_at = metadata_string(value, "generated_at")
+        .ok_or_else(|| "project-skill generated_at must be a string".to_string())?;
+    let maturity = metadata_string(value, "maturity_level")
+        .ok_or_else(|| "project-skill maturity_level must be a string".to_string())?;
+    let verification_status = metadata_string(value, "verification_status")
+        .ok_or_else(|| "project-skill verification_status must be a string".to_string())?;
+    let held_out_validation_status = metadata_string(value, "held_out_validation_status")
+        .ok_or_else(|| "project-skill held_out_validation_status must be a string".to_string())?;
+
+    let render_bullets = |items: Vec<String>| -> String {
+        items
+            .into_iter()
+            .map(|item| format!("- {item}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+
+    let source_materials = metadata_array(value, "source_materials")
+        .ok_or_else(|| "project-skill source_materials must be an array".to_string())?
+        .iter()
+        .map(|entry| {
+            let path = entry
+                .get("path")
+                .and_then(|item| item.as_str())
+                .ok_or_else(|| {
+                    "project-skill source_materials.path must be a string".to_string()
+                })?;
+            let sha = entry.get("sha256").and_then(|item| item.as_str());
+            let exists = entry
+                .get("exists")
+                .and_then(|item| item.as_bool())
+                .unwrap_or(false);
+            let suffix = match (sha, exists) {
+                (Some(sha), true) => format!(" (sha256: `{sha}`)"),
+                (Some(sha), false) => format!(" (missing locally, sha256: `{sha}`)"),
+                (None, true) => String::new(),
+                (None, false) => " (missing locally)".to_string(),
+            };
+            Ok(format!("- `{path}`{suffix}"))
+        })
+        .collect::<Result<Vec<_>, String>>()?
+        .join("\n");
+
+    Ok(format!(
+        "---\nname: {name}\ndescription: {description}\n---\n\n# {title}\n\n## Purpose\n\nThis project-level skill captures a reusable workflow in the **{domain}** domain.\n\n## Use when\n\n{use_when}\n\n## Inputs expected\n\n{inputs}\n\n## Source materials\n\n{sources}\n\n## Workflow\n\n{workflow}\n\n## Expected outputs\n\n{outputs}\n\n## Limits\n\n{limits}\n\n## Failure checks\n\n{failure_checks}\n\n## Evaluation examples\n\n{evaluation_examples}\n\n## Governance metadata\n\n- generated_at: `{generated_at}`\n- maturity: `{maturity}`\n- verification: `{verification_status}`\n- held_out_validation: `{held_out_validation_status}`\n\n## Maintainer notes\n\n- Keep interpretation guidance separate from executable tool contracts.\n- Refresh source material provenance when the workflow changes materially.\n- Promote stable computation into an external or bundled plugin only after the computation boundary stabilizes.\n"
+        ,
+        inputs = render_bullets(metadata_string_items(value, "input_expectations")?),
+        sources = source_materials,
+        workflow = render_bullets(metadata_string_items(value, "workflow")?),
+        outputs = render_bullets(metadata_string_items(value, "outputs")?),
+        limits = render_bullets(metadata_string_items(value, "limits")?),
+        failure_checks = render_bullets(metadata_string_items(value, "failure_checks")?),
+        evaluation_examples = render_bullets(metadata_string_items(value, "evaluation_examples")?),
+    ))
+}
+
+fn render_project_skill_readme(
+    value: &serde_json::Value,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let title = metadata_string(value, "title")
+        .ok_or_else(|| "project-skill title must be a string".to_string())?;
+    let maturity = metadata_string(value, "maturity_level")
+        .ok_or_else(|| "project-skill maturity_level must be a string".to_string())?;
+    let verification_status = metadata_string(value, "verification_status")
+        .ok_or_else(|| "project-skill verification_status must be a string".to_string())?;
+    let held_out_validation_status = metadata_string(value, "held_out_validation_status")
+        .ok_or_else(|| "project-skill held_out_validation_status must be a string".to_string())?;
+
+    let next_step = match maturity {
+        "draft" => format!(
+            "Review the workflow, run a realistic example, and record held-out validation before promoting beyond `{maturity}`."
+        ),
+        "project" => "Reuse this as a governed project-level skill. If the computation path stabilizes across projects, extract the stable execution layer into an external plugin.".to_string(),
+        "published" => "Treat this as a published skill contract; changes should preserve compatibility or ship with explicit migration guidance.".to_string(),
+        "deprecated" => "Do not extend this skill without a replacement plan; prefer migrating users to the designated successor workflow.".to_string(),
+        other => format!("Review the current maturity state (`{other}`) before broader reuse."),
+    };
+
+    Ok(format!(
+        "# {title}\n\nThis directory contains the canonical governed skill artifact for this workflow.\n\n## Current status\n\n- maturity: `{maturity}`\n- verification: `{verification_status}`\n- held_out_validation: `{held_out_validation_status}`\n\n## What is here\n\n- `SKILL.md` — reusable workflow contract for agents and reviewers\n- `skill.json` — canonical governance metadata consumed by validation and promotion commands\n\n## Next step\n\n{next_step}\n"
+    ))
+}
+
+fn rewrite_project_skill_docs(
+    skill_root: &Path,
+    value: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
+    fs::write(
+        skill_root.join("SKILL.md"),
+        render_project_skill_markdown(value)?,
+    )?;
+    fs::write(
+        skill_root.join("README.md"),
+        render_project_skill_readme(value)?,
+    )?;
+    Ok(())
+}
+
 struct ProjectSkillCommandReport {
     text: String,
     json: serde_json::Value,
 }
 
-fn validate_project_skill_metadata(value: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
+fn validate_project_skill_metadata(
+    value: &serde_json::Value,
+) -> Result<(), Box<dyn std::error::Error>> {
     let required_fields = [
         "source_materials",
         "generated_at",
@@ -2848,16 +2985,16 @@ fn validate_project_skill_metadata(value: &serde_json::Value) -> Result<(), Box<
     }
 
     if matches!(maturity, "project" | "published") && held_out_validation_status != "passed" {
-        return Err(
-            "project/published skills require held_out_validation_status=passed".into(),
-        );
+        return Err("project/published skills require held_out_validation_status=passed".into());
     }
     if maturity == "project"
-        && !matches!(verification_status, "held-out-validated" | "published" | "deprecated")
+        && !matches!(
+            verification_status,
+            "held-out-validated" | "published" | "deprecated"
+        )
     {
         return Err(
-            "project skills require verification_status=held-out-validated (or stronger)"
-                .into(),
+            "project skills require verification_status=held-out-validated (or stronger)".into(),
         );
     }
     if maturity == "published" && verification_status != "published" {
@@ -3046,8 +3183,7 @@ fn validate_project_skill_report(
     let (warnings, remediation) = project_skill_warnings_and_remediation(&value, &skill_root);
 
     let maturity = metadata_string(&value, "maturity_level").unwrap_or("unknown");
-    let verification_status =
-        metadata_string(&value, "verification_status").unwrap_or("unknown");
+    let verification_status = metadata_string(&value, "verification_status").unwrap_or("unknown");
     let held_out_validation_status =
         metadata_string(&value, "held_out_validation_status").unwrap_or("unknown");
 
@@ -3095,7 +3231,9 @@ fn validate_project_skill_report(
     })
 }
 
-fn doctor_project_skill(path: &Path) -> Result<ProjectSkillCommandReport, Box<dyn std::error::Error>> {
+fn doctor_project_skill(
+    path: &Path,
+) -> Result<ProjectSkillCommandReport, Box<dyn std::error::Error>> {
     let skill_root = resolve_project_skill_root(path)?;
     ensure_project_skill_files(&skill_root)?;
     let value = read_project_skill_metadata(&skill_root)?;
@@ -3184,18 +3322,19 @@ fn promote_project_skill(
         serde_json::Value::String(to.to_string()),
     );
 
-    let effective_verification_status = verification_status
-        .map(str::to_string)
-        .unwrap_or_else(|| match to {
-            "project" => "held-out-validated".to_string(),
-            "published" => "published".to_string(),
-            "deprecated" => "deprecated".to_string(),
-            _ => object
-                .get("verification_status")
-                .and_then(|entry| entry.as_str())
-                .unwrap_or("drafted")
-                .to_string(),
-        });
+    let effective_verification_status =
+        verification_status
+            .map(str::to_string)
+            .unwrap_or_else(|| match to {
+                "project" => "held-out-validated".to_string(),
+                "published" => "published".to_string(),
+                "deprecated" => "deprecated".to_string(),
+                _ => object
+                    .get("verification_status")
+                    .and_then(|entry| entry.as_str())
+                    .unwrap_or("drafted")
+                    .to_string(),
+            });
     object.insert(
         "verification_status".to_string(),
         serde_json::Value::String(effective_verification_status.clone()),
@@ -3210,10 +3349,8 @@ fn promote_project_skill(
 
     validate_project_skill_metadata(&value)?;
     let metadata_path = skill_root.join("skill.json");
-    fs::write(
-        &metadata_path,
-        serde_json::to_string_pretty(&value)? + "\n",
-    )?;
+    fs::write(&metadata_path, serde_json::to_string_pretty(&value)? + "\n")?;
+    rewrite_project_skill_docs(&skill_root, &value)?;
 
     let held_out = value
         .get("held_out_validation_status")
@@ -5027,7 +5164,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
         out,
         "  {cli_name} plugins [list|install <path>|enable <name>|disable <name>|uninstall <id>|update <id>]"
     )?;
-    writeln!(out, "  {cli_name} project-skill <init|validate|promote|doctor> [...]")?;
+    writeln!(
+        out,
+        "  {cli_name} project-skill <init|validate|promote|doctor> [...]"
+    )?;
     writeln!(out)?;
     writeln!(out, "Flags:")?;
     writeln!(
@@ -5112,12 +5252,12 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::{
-        describe_tool_progress, filter_tool_specs, format_compact_report, format_cost_report,
-        format_internal_prompt_progress_line, format_model_report, format_model_switch_report,
-        format_permissions_report, format_permissions_switch_report, format_resume_report,
-        format_status_report, format_tool_call_start, format_tool_result,
-        doctor_project_skill, normalize_permission_mode, parse_args, parse_git_status_metadata,
-        permission_policy, print_help_to, push_output_block, render_config_report,
+        describe_tool_progress, doctor_project_skill, filter_tool_specs, format_compact_report,
+        format_cost_report, format_internal_prompt_progress_line, format_model_report,
+        format_model_switch_report, format_permissions_report, format_permissions_switch_report,
+        format_resume_report, format_status_report, format_tool_call_start, format_tool_result,
+        normalize_permission_mode, parse_args, parse_git_status_metadata, permission_policy,
+        print_help_to, promote_project_skill, push_output_block, render_config_report,
         render_memory_report, render_repl_help, resolve_client_selection, resolve_model_alias,
         response_to_events, resume_supported_slash_commands, status_context,
         validate_project_skill_report, CliAction, CliOutputFormat, InitOptions,
@@ -5737,12 +5877,8 @@ mod tests {
                     workflow_steps: Vec::new(),
                     outputs: Vec::new(),
                     limits: Vec::new(),
-                    failure_checks: vec![
-                        "Stop if reverse-keyed items are ambiguous".to_string()
-                    ],
-                    evaluation_examples: vec![
-                        "Held-out pilot dataset walkthrough".to_string()
-                    ],
+                    failure_checks: vec!["Stop if reverse-keyed items are ambiguous".to_string()],
+                    evaluation_examples: vec!["Held-out pilot dataset walkthrough".to_string()],
                     generated_by: "claw project-skill init".to_string(),
                     maturity: "draft".to_string(),
                     output_root: None,
@@ -5861,7 +5997,9 @@ mod tests {
             report.text
         );
         assert!(
-            report.text.contains("[warn] held-out validation is still pending"),
+            report
+                .text
+                .contains("[warn] held-out validation is still pending"),
             "doctor report should contain held-out warning: {}",
             report.text
         );
@@ -5869,6 +6007,77 @@ mod tests {
             report.text.contains("outputs still look scaffold-level"),
             "doctor report should flag generic outputs: {}",
             report.text
+        );
+
+        fs::remove_dir_all(&root).expect("temp skill root should clean up");
+    }
+
+    #[test]
+    fn promote_project_skill_rewrites_skill_docs_from_metadata() {
+        let root = temp_dir().join("skill-promote-doc-sync");
+        fs::create_dir_all(&root).expect("temp skill root should be creatable");
+        fs::write(root.join("SKILL.md"), "# stale\n").expect("skill md should write");
+        fs::write(root.join("README.md"), "# stale\n").expect("readme should write");
+        fs::write(
+            root.join("skill.json"),
+            serde_json::to_string_pretty(&json!({
+                "name": "survey-cleaning-sop",
+                "title": "Survey Cleaning SOP",
+                "description": "Draft workflow",
+                "domain": "survey",
+                "generated_at": "2026-04-02T00:00:00Z",
+                "generated_by": "claw project-skill init",
+                "use_when": "Use before scoring",
+                "input_expectations": ["Approved questionnaire codebook"],
+                "workflow": ["Review questionnaire structure"],
+                "outputs": ["Analysis decision log"],
+                "limits": ["Draft only"],
+                "failure_checks": ["Stop if required inputs are unclear"],
+                "evaluation_examples": [
+                    "Primary project example: validated",
+                    "Held-out example: validated"
+                ],
+                "verification_status": "drafted",
+                "held_out_validation_status": "pending",
+                "maturity_level": "draft",
+                "source_materials": [
+                    {"path": "docs/research-method-standards.md", "exists": true, "sha256": "abc123"}
+                ]
+            }))
+            .expect("json should serialize"),
+        )
+        .expect("skill json should write");
+
+        let report = promote_project_skill(&root, "project", None, Some("passed"))
+            .expect("promotion should succeed");
+        assert!(
+            report.text.contains("Maturity         project"),
+            "promotion report should contain project maturity: {}",
+            report.text
+        );
+
+        let skill_md = fs::read_to_string(root.join("SKILL.md")).expect("skill md should read");
+        assert!(
+            skill_md.contains("- maturity: `project`"),
+            "skill markdown should reflect promoted maturity: {skill_md}"
+        );
+        assert!(
+            skill_md.contains("- verification: `held-out-validated`"),
+            "skill markdown should reflect promoted verification: {skill_md}"
+        );
+        assert!(
+            skill_md.contains("- held_out_validation: `passed`"),
+            "skill markdown should reflect passed held-out validation: {skill_md}"
+        );
+
+        let readme = fs::read_to_string(root.join("README.md")).expect("readme should read");
+        assert!(
+            readme.contains("- maturity: `project`"),
+            "readme should reflect promoted maturity: {readme}"
+        );
+        assert!(
+            readme.contains("external plugin"),
+            "readme should describe the next step after promotion: {readme}"
         );
 
         fs::remove_dir_all(&root).expect("temp skill root should clean up");
@@ -6095,7 +6304,11 @@ mod tests {
                 "claw plugins [list|install <path>|enable <name>|disable <name>|uninstall <id>|update <id>]"
             )
         );
-        assert!(help.contains("claw project-skill <init|validate> [...]"));
+        assert!(help.contains("claw project-skill init survey-cleaning-sop"));
+        assert!(
+            help.contains("claw project-skill promote .claw/project-skills/survey-cleaning-sop")
+        );
+        assert!(help.contains("claw project-skill doctor .claw/project-skills/survey-cleaning-sop"));
         assert!(help.contains("claw agents"));
         assert!(help.contains("claw skills"));
         assert!(help.contains("claw /skills"));

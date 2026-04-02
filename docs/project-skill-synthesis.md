@@ -102,6 +102,15 @@ Promotion example:
 
 The promote command updates metadata and re-runs the same governance gates used by `validate`.
 
+### Real rehearsal in this repo
+
+There is now a concrete questionnaire example for this governance loop:
+
+- [`./questionnaire-mediation-moderation-rehearsal.md`](./questionnaire-mediation-moderation-rehearsal.md)
+- [`../examples/project-skills/questionnaire-mediation-moderation-sop/`](../examples/project-skills/questionnaire-mediation-moderation-sop/)
+
+It demonstrates a realistic **skill-first** workflow for mediation / moderation requests that are not yet stable enough to freeze into a plugin contract.
+
 ---
 
 ## Compatibility export model
