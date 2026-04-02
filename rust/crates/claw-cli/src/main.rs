@@ -212,6 +212,12 @@ enum ProjectSkillCommand {
     Validate {
         path: PathBuf,
     },
+    Promote {
+        path: PathBuf,
+        to: String,
+        verification_status: Option<String>,
+        held_out_validation_status: Option<String>,
+    },
 }
 
 impl CliOutputFormat {
@@ -458,7 +464,7 @@ fn parse_plugins_args(args: &[String]) -> Result<CliAction, String> {
 fn parse_project_skill_args(args: &[String]) -> Result<CliAction, String> {
     let Some(subcommand) = args.first().map(String::as_str) else {
         return Err(
-            "project-skill requires a subcommand: init <slug> or validate <path>".to_string(),
+            "project-skill requires a subcommand: init <slug>, validate <path>, or promote <path> --to <maturity>".to_string(),
         );
     };
 
@@ -466,8 +472,9 @@ fn parse_project_skill_args(args: &[String]) -> Result<CliAction, String> {
         "--help" | "-h" => Ok(CliAction::Help),
         "init" => parse_project_skill_init_args(&args[1..]),
         "validate" => parse_project_skill_validate_args(&args[1..]),
+        "promote" => parse_project_skill_promote_args(&args[1..]),
         other => Err(format!(
-            "unknown project-skill subcommand '{other}'. Use init <slug> or validate <path>."
+            "unknown project-skill subcommand '{other}'. Use init <slug>, validate <path>, or promote <path> --to <maturity>."
         )),
     }
 }
@@ -676,6 +683,59 @@ fn parse_project_skill_validate_args(args: &[String]) -> Result<CliAction, Strin
     Ok(CliAction::ProjectSkill {
         command: ProjectSkillCommand::Validate {
             path: PathBuf::from(path),
+        },
+    })
+}
+
+fn parse_project_skill_promote_args(args: &[String]) -> Result<CliAction, String> {
+    let Some(path) = args.first().filter(|value| !value.starts_with('-')) else {
+        return Err("project-skill promote requires a path".to_string());
+    };
+
+    let mut to = None;
+    let mut verification_status = None;
+    let mut held_out_validation_status = None;
+    let mut index = 1;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--help" | "-h" => return Ok(CliAction::Help),
+            "--to" => {
+                to = Some(
+                    args.get(index + 1)
+                        .ok_or_else(|| "missing value for --to".to_string())?
+                        .clone(),
+                );
+                index += 2;
+            }
+            "--verification-status" => {
+                verification_status = Some(
+                    args.get(index + 1)
+                        .ok_or_else(|| "missing value for --verification-status".to_string())?
+                        .clone(),
+                );
+                index += 2;
+            }
+            "--held-out-validation" => {
+                held_out_validation_status = Some(
+                    args.get(index + 1)
+                        .ok_or_else(|| "missing value for --held-out-validation".to_string())?
+                        .clone(),
+                );
+                index += 2;
+            }
+            other => {
+                return Err(format!("unknown project-skill promote option: {other}"));
+            }
+        }
+    }
+
+    Ok(CliAction::ProjectSkill {
+        command: ProjectSkillCommand::Promote {
+            path: PathBuf::from(path),
+            to: to.ok_or_else(|| "project-skill promote requires --to".to_string())?,
+            verification_status,
+            held_out_validation_status,
         },
     })
 }
@@ -2453,9 +2513,6 @@ fn run_project_skill_command(
     command: &ProjectSkillCommand,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let cwd = env::current_dir()?;
-    let script_path = find_project_skill_scaffold_script(&cwd)?;
-    let mut process = Command::new("python3");
-    process.arg(&script_path).current_dir(&cwd);
 
     match command {
         ProjectSkillCommand::Init {
@@ -2478,6 +2535,9 @@ fn run_project_skill_command(
             openclaw_root,
             claude_root,
         } => {
+            let script_path = find_project_skill_scaffold_script(&cwd)?;
+            let mut process = Command::new("python3");
+            process.arg(&script_path).current_dir(&cwd);
             process
                 .arg("--slug")
                 .arg(slug)
@@ -2527,25 +2587,40 @@ fn run_project_skill_command(
             if let Some(root) = claude_root {
                 process.arg("--claude-root").arg(root);
             }
+
+            let output = process.output()?;
+            if !output.stdout.is_empty() {
+                print!("{}", String::from_utf8_lossy(&output.stdout));
+            }
+            if !output.stderr.is_empty() {
+                eprint!("{}", String::from_utf8_lossy(&output.stderr));
+            }
+            if !output.status.success() {
+                return Err("project-skill scaffold command failed".into());
+            }
+            Ok(())
         }
         ProjectSkillCommand::Validate { path } => {
             let status = validate_project_skill_path(path)?;
             println!("{status}");
-            return Ok(());
+            Ok(())
+        }
+        ProjectSkillCommand::Promote {
+            path,
+            to,
+            verification_status,
+            held_out_validation_status,
+        } => {
+            let status = promote_project_skill(
+                path,
+                to,
+                verification_status.as_deref(),
+                held_out_validation_status.as_deref(),
+            )?;
+            println!("{status}");
+            Ok(())
         }
     }
-
-    let output = process.output()?;
-    if !output.stdout.is_empty() {
-        print!("{}", String::from_utf8_lossy(&output.stdout));
-    }
-    if !output.stderr.is_empty() {
-        eprint!("{}", String::from_utf8_lossy(&output.stderr));
-    }
-    if !output.status.success() {
-        return Err("project-skill scaffold command failed".into());
-    }
-    Ok(())
 }
 
 fn run_plugins_command(
@@ -2561,20 +2636,23 @@ fn run_plugins_command(
     Ok(())
 }
 
-fn validate_project_skill_path(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
+fn resolve_project_skill_root(path: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
     let candidate = if path.is_absolute() {
         path.to_path_buf()
     } else {
         env::current_dir()?.join(path)
     };
-    let skill_root = if candidate.is_dir() {
+    Ok(if candidate.is_dir() {
         candidate
     } else {
         candidate
             .parent()
             .ok_or_else(|| "project-skill validate path has no parent".to_string())?
             .to_path_buf()
-    };
+    })
+}
+
+fn ensure_project_skill_files(skill_root: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let skill_md = skill_root.join("SKILL.md");
     let metadata = skill_root.join("skill.json");
     let readme = skill_root.join("README.md");
@@ -2588,9 +2666,16 @@ fn validate_project_skill_path(path: &Path) -> Result<String, Box<dyn std::error
     if !missing.is_empty() {
         return Err(format!("missing project-skill files: {}", missing.join(", ")).into());
     }
+    Ok(())
+}
 
+fn read_project_skill_metadata(skill_root: &Path) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let metadata = skill_root.join("skill.json");
     let raw = fs::read_to_string(&metadata)?;
-    let value: serde_json::Value = serde_json::from_str(&raw)?;
+    Ok(serde_json::from_str(&raw)?)
+}
+
+fn validate_project_skill_metadata(value: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
     let required_fields = [
         "source_materials",
         "generated_at",
@@ -2707,9 +2792,79 @@ fn validate_project_skill_path(path: &Path) -> Result<String, Box<dyn std::error
         return Err("published skills require verification_status=published".into());
     }
 
+    Ok(())
+}
+
+fn validate_project_skill_path(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let skill_root = resolve_project_skill_root(path)?;
+    ensure_project_skill_files(&skill_root)?;
+    let value = read_project_skill_metadata(&skill_root)?;
+    validate_project_skill_metadata(&value)?;
+
     Ok(format!(
         "Project skill validation\n  Result           valid\n  Skill root       {}",
         skill_root.display()
+    ))
+}
+
+fn promote_project_skill(
+    path: &Path,
+    to: &str,
+    verification_status: Option<&str>,
+    held_out_validation_status: Option<&str>,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let skill_root = resolve_project_skill_root(path)?;
+    ensure_project_skill_files(&skill_root)?;
+    let mut value = read_project_skill_metadata(&skill_root)?;
+    let object = value
+        .as_object_mut()
+        .ok_or_else(|| "project-skill metadata must be a JSON object".to_string())?;
+
+    object.insert(
+        "maturity_level".to_string(),
+        serde_json::Value::String(to.to_string()),
+    );
+
+    let effective_verification_status = verification_status
+        .map(str::to_string)
+        .unwrap_or_else(|| match to {
+            "project" => "held-out-validated".to_string(),
+            "published" => "published".to_string(),
+            "deprecated" => "deprecated".to_string(),
+            _ => object
+                .get("verification_status")
+                .and_then(|entry| entry.as_str())
+                .unwrap_or("drafted")
+                .to_string(),
+        });
+    object.insert(
+        "verification_status".to_string(),
+        serde_json::Value::String(effective_verification_status.clone()),
+    );
+
+    if let Some(status) = held_out_validation_status {
+        object.insert(
+            "held_out_validation_status".to_string(),
+            serde_json::Value::String(status.to_string()),
+        );
+    }
+
+    validate_project_skill_metadata(&value)?;
+    let metadata_path = skill_root.join("skill.json");
+    fs::write(
+        &metadata_path,
+        serde_json::to_string_pretty(&value)? + "\n",
+    )?;
+
+    Ok(format!(
+        "Project skill promotion\n  Result           promoted\n  Skill root       {}\n  Maturity         {}\n  Verification     {}\n  Held-out         {}",
+        skill_root.display(),
+        to,
+        effective_verification_status,
+        value
+            .get("held_out_validation_status")
+            .and_then(|entry| entry.as_str())
+            .unwrap_or("pending")
     ))
 }
 
@@ -4502,7 +4657,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
         out,
         "  {cli_name} plugins [list|install <path>|enable <name>|disable <name>|uninstall <id>|update <id>]"
     )?;
-    writeln!(out, "  {cli_name} project-skill <init|validate> [...]")?;
+    writeln!(out, "  {cli_name} project-skill <init|validate|promote> [...]")?;
     writeln!(out)?;
     writeln!(out, "Flags:")?;
     writeln!(
@@ -4568,6 +4723,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(
         out,
         "  {cli_name} project-skill init survey-cleaning-sop --title \"Survey Cleaning SOP\" --description \"Draft workflow for local survey cleaning.\" --domain survey --use-when \"Use before scoring\" --source docs/research-method-standards.md"
+    )?;
+    writeln!(
+        out,
+        "  {cli_name} project-skill promote .claw/project-skills/survey-cleaning-sop --to project --held-out-validation passed"
     )?;
     Ok(())
 }
@@ -5043,6 +5202,30 @@ mod tests {
             CliAction::ProjectSkill {
                 command: ProjectSkillCommand::Validate {
                     path: PathBuf::from(".claw/project-skills/survey-cleaning-sop"),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn parses_project_skill_promote_subcommand() {
+        let args = vec![
+            "project-skill".to_string(),
+            "promote".to_string(),
+            ".claw/project-skills/survey-cleaning-sop".to_string(),
+            "--to".to_string(),
+            "project".to_string(),
+            "--held-out-validation".to_string(),
+            "passed".to_string(),
+        ];
+        assert_eq!(
+            parse_args(&args).expect("project-skill promote should parse"),
+            CliAction::ProjectSkill {
+                command: ProjectSkillCommand::Promote {
+                    path: PathBuf::from(".claw/project-skills/survey-cleaning-sop"),
+                    to: "project".to_string(),
+                    verification_status: None,
+                    held_out_validation_status: Some("passed".to_string()),
                 }
             }
         );

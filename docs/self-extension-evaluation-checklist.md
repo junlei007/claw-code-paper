@@ -114,6 +114,15 @@
 - 真实例子已过
 - held-out validation 已过
 
+命令层面可以这样做：
+
+```bash
+cd rust
+./target/debug/claw project-skill promote ./.claw/project-skills/<slug> \
+  --to project \
+  --held-out-validation passed
+```
+
 ### `project` -> `published`
 
 至少确认：

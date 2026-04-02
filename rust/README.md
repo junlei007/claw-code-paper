@@ -55,6 +55,14 @@ survey_metadata
 ./target/debug/claw project-skill validate ./.claw/project-skills/survey-cleaning-sop
 ```
 
+提升成熟度：
+
+```bash
+./target/debug/claw project-skill promote ./.claw/project-skills/survey-cleaning-sop \
+  --to project \
+  --held-out-validation passed
+```
+
 说明文档：
 
 - [`../docs/project-skill-synthesis.md`](../docs/project-skill-synthesis.md)

@@ -68,6 +68,16 @@ cd rust
 ./target/debug/claw project-skill validate ./.claw/project-skills/survey-cleaning-sop
 ```
 
+Promotion example:
+
+```bash
+./target/debug/claw project-skill promote ./.claw/project-skills/survey-cleaning-sop \
+  --to project \
+  --held-out-validation passed
+```
+
+The promote command updates metadata and re-runs the same governance gates used by `validate`.
+
 ---
 
 ## Compatibility export model

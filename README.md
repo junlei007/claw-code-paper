@@ -129,6 +129,10 @@ cd rust
   --source ../docs/research-method-registry.md
 
 ./target/debug/claw project-skill validate ./.claw/project-skills/survey-cleaning-sop
+
+./target/debug/claw project-skill promote ./.claw/project-skills/survey-cleaning-sop \
+  --to project \
+  --held-out-validation passed
 ```
 
 详细说明：
