@@ -1110,29 +1110,18 @@ impl LiveCli {
             .as_deref()
             .map_or_else(|| "auto".to_string(), ToOwned::to_owned);
         format!(
-            "\x1b[38;5;45m\
-        /\\   /\\\\\n\
-       ((o)_(o))\n\
-    .-./  ._.  \\,-.\n\
-   /  (    |    )  \\\n\
-   \\   \\  ___  /   /\n\
-    '._/\\_____\\/_.''\x1b[0m\n\
- \x1b[38;5;45m ██████╗██╗      █████╗ ██╗    ██╗\n\
-██╔════╝██║     ██╔══██╗██║    ██║\n\
-██║     ██║     ███████║██║ █╗ ██║\n\
-██║     ██║     ██╔══██║██║███╗██║\n\
-╚██████╗███████╗██║  ██║╚███╔███╔╝\n\
- ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝\x1b[0m \x1b[38;5;229mPaperOwl\x1b[0m 🦉\n\n\
-  \x1b[2mModel\x1b[0m            {}\n\
-  \x1b[2mProvider\x1b[0m         {}\n\
-  \x1b[2mPermissions\x1b[0m      {}\n\
-  \x1b[2mDirectory\x1b[0m        {}\n\
-  \x1b[2mSession\x1b[0m          {}\n\n\
+            "\x1b[38;5;215m▖▘  ▝▗\x1b[0m  \x1b[1mOwl CLI v{VERSION}\x1b[0m\n\
+\x1b[38;5;215m▗▝▖▗▝▗\x1b[0m  \x1b[2m{} · {}\x1b[0m\n\
+\x1b[38;5;215m▗ ▝▘ ▗\x1b[0m  \x1b[2m{}\x1b[0m\n\
+\x1b[38;5;215m▝▗    ▖▘\x1b[0m\n\
+\x1b[38;5;215m ▝▖▗▖▘\x1b[0m   \x1b[2mPermissions\x1b[0m  {}\n\
+\x1b[38;5;215m━━▝▘▝▘━━\x1b[0m   \x1b[2mSession\x1b[0m      {}\n\n\
+  \x1b[2mWorkflow\x1b[0m         metadata → scoring → psychometrics → report\n\
   Type \x1b[1m/help\x1b[0m for commands · \x1b[2mShift+Enter\x1b[0m for newline",
             self.model,
             provider,
-            self.permission_mode.as_str(),
             cwd,
+            self.permission_mode.as_str(),
             self.session.id,
         )
     }

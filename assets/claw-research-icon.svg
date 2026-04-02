@@ -1,47 +1,36 @@
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">Claw Code Paper badge-style owl icon</title>
-  <desc id="desc">An original flat badge-style owl icon for the research analysis CLI.</desc>
+  <title id="title">Owl CLI icon</title>
+  <desc id="desc">A minimal owl face icon matching the CLI startup motif.</desc>
   <defs>
-    <linearGradient id="bg" x1="92" y1="76" x2="424" y2="436" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#0F172A"/>
-      <stop offset="1" stop-color="#1E40AF"/>
+    <linearGradient id="bg" x1="88" y1="72" x2="424" y2="440" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#1B130D"/>
+      <stop offset="1" stop-color="#2E1D12"/>
     </linearGradient>
-    <linearGradient id="owl" x1="168" y1="136" x2="344" y2="360" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#22D3EE"/>
-      <stop offset="1" stop-color="#14B8A6"/>
-    </linearGradient>
-    <linearGradient id="chart" x1="208" y1="286" x2="304" y2="356" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#F8FAFC"/>
-      <stop offset="1" stop-color="#DBEAFE"/>
+    <linearGradient id="owl" x1="160" y1="140" x2="352" y2="340" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F7C59A"/>
+      <stop offset="1" stop-color="#E79A56"/>
     </linearGradient>
   </defs>
 
-  <rect x="48" y="48" width="416" height="416" rx="116" fill="url(#bg)"/>
-  <rect x="68" y="68" width="376" height="376" rx="98" stroke="#60A5FA" stroke-opacity="0.25" stroke-width="2"/>
+  <rect x="48" y="48" width="416" height="416" rx="112" fill="url(#bg)"/>
+  <rect x="68" y="68" width="376" height="376" rx="94" stroke="#F2B783" stroke-opacity="0.18" stroke-width="2"/>
 
-  <g>
-    <path d="M182 148L154 193C142 213 136 234 136 257V280C136 354 189 402 256 402C323 402 376 354 376 280V257C376 234 370 213 358 193L330 148L298 176H214L182 148Z" fill="url(#owl)"/>
-    <path d="M188 142L154 192L214 182L188 142Z" fill="#67E8F9"/>
-    <path d="M324 142L358 192L298 182L324 142Z" fill="#67E8F9"/>
-
-    <circle cx="208" cy="240" r="46" fill="#F8FAFC"/>
-    <circle cx="304" cy="240" r="46" fill="#F8FAFC"/>
-    <circle cx="208" cy="240" r="18" fill="#0F172A"/>
-    <circle cx="304" cy="240" r="18" fill="#0F172A"/>
-    <circle cx="214" cy="233" r="4.5" fill="#FFFFFF"/>
-    <circle cx="310" cy="233" r="4.5" fill="#FFFFFF"/>
-
-    <path d="M256 250L232 280H280L256 250Z" fill="#F59E0B"/>
-    <path d="M214 292C225 306 239 314 256 314C273 314 287 306 298 292" stroke="#0F766E" stroke-width="10" stroke-linecap="round"/>
-
-    <rect x="196" y="298" width="120" height="68" rx="20" fill="#0F172A" fill-opacity="0.14" stroke="#BAE6FD" stroke-opacity="0.45" stroke-width="2.5"/>
-    <rect x="220" y="332" width="16" height="16" rx="5" fill="url(#chart)"/>
-    <rect x="248" y="318" width="16" height="30" rx="5" fill="url(#chart)"/>
-    <rect x="276" y="304" width="16" height="44" rx="5" fill="url(#chart)"/>
-
-    <path d="M188 326L152 346" stroke="#67E8F9" stroke-width="14" stroke-linecap="round"/>
-    <path d="M324 326L360 346" stroke="#67E8F9" stroke-width="14" stroke-linecap="round"/>
-
-    <path d="M334 150L342 166L358 174L342 182L334 198L326 182L310 174L326 166L334 150Z" fill="#FDE68A"/>
+  <g fill="url(#owl)">
+    <path d="M176 154L148 218L222 190L176 154Z"/>
+    <path d="M336 154L364 218L290 190L336 154Z"/>
+    <path d="M154 228C154 183 191 146 236 146H276C321 146 358 183 358 228V276C358 345 312 392 256 392C200 392 154 345 154 276V228Z"/>
   </g>
+
+  <circle cx="208" cy="240" r="42" fill="#FFF8F1"/>
+  <circle cx="304" cy="240" r="42" fill="#FFF8F1"/>
+  <circle cx="208" cy="240" r="17" fill="#25170E"/>
+  <circle cx="304" cy="240" r="17" fill="#25170E"/>
+  <circle cx="214" cy="233" r="4" fill="#FFFFFF"/>
+  <circle cx="310" cy="233" r="4" fill="#FFFFFF"/>
+
+  <path d="M256 252L232 284H280L256 252Z" fill="#8A4517"/>
+  <path d="M208 314C220 326 236 334 256 334C276 334 292 326 304 314" stroke="#8A4517" stroke-width="10" stroke-linecap="round"/>
+
+  <path d="M164 344H348" stroke="#E7A265" stroke-width="12" stroke-linecap="round" opacity="0.9"/>
+  <path d="M192 366H320" stroke="#E7A265" stroke-width="10" stroke-linecap="round" opacity="0.75"/>
 </svg>
