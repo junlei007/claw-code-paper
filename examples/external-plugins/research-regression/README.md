@@ -12,6 +12,7 @@ See also:
 
 - [`../../../docs/research-method-registry.md`](../../../docs/research-method-registry.md)
 - [`../../../docs/research-method-standards.md`](../../../docs/research-method-standards.md)
+- [`../../../docs/research-extension-demo.md`](../../../docs/research-extension-demo.md)
 - [`./contracts/regression-contract.md`](./contracts/regression-contract.md)
 
 ---

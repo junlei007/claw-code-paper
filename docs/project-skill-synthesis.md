@@ -42,11 +42,10 @@ python3 tools/scaffold_project_skill.py \
   --output "skill.json metadata"
 ```
 
-Generated default location:
+Generated default location depends on where you invoke the scaffold:
 
-```text
-.claw/project-skills/<slug>/
-```
+- `cd rust && ./target/debug/claw ...` → `rust/.claw/project-skills/<slug>/`
+- `python3 tools/scaffold_project_skill.py ...` from repo root → `.claw/project-skills/<slug>/`
 
 Each generated skill draft contains:
 
@@ -58,7 +57,7 @@ Quick validation:
 
 ```bash
 cd rust
-./target/debug/claw project-skill validate ../.claw/project-skills/survey-cleaning-sop
+./target/debug/claw project-skill validate ./.claw/project-skills/survey-cleaning-sop
 ```
 
 ---
@@ -185,4 +184,5 @@ If the requested method is missing from the integrated registry:
 See also:
 
 - [`./research-method-registry.md`](./research-method-registry.md)
+- [`./research-extension-demo.md`](./research-extension-demo.md)
 - [`../examples/external-plugins/research-regression/README.md`](../examples/external-plugins/research-regression/README.md)

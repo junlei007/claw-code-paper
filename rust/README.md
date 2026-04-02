@@ -50,7 +50,7 @@ survey_metadata
 校验：
 
 ```bash
-./target/debug/claw project-skill validate ../.claw/project-skills/survey-cleaning-sop
+./target/debug/claw project-skill validate ./.claw/project-skills/survey-cleaning-sop
 ```
 
 说明文档：
@@ -69,6 +69,7 @@ survey_metadata
 示例插件：
 
 - [`../examples/external-plugins/research-regression/README.md`](../examples/external-plugins/research-regression/README.md)
+- [`../docs/research-extension-demo.md`](../docs/research-extension-demo.md)
 
 ---
 
