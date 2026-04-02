@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,7 +12,8 @@ from string import Template
 
 
 DEFAULT_OUTPUT_ROOT = Path(".claw/project-skills")
-TEMPLATE_PATH = Path("templates/project-skill/SKILL.md.tmpl")
+REPO_ROOT = Path(__file__).resolve().parent.parent
+TEMPLATE_PATH = REPO_ROOT / "templates/project-skill/SKILL.md.tmpl"
 MATURITY_LEVELS = ("draft", "project", "published", "deprecated")
 
 
@@ -117,7 +119,7 @@ def collect_sources(raw_sources: list[str], workspace_root: Path) -> list[Source
         if candidate.exists() and candidate.is_file():
             results.append(
                 SourceRecord(
-                    path=str(candidate.relative_to(workspace_root)),
+                    path=os.path.relpath(candidate, workspace_root),
                     exists=True,
                     sha256=hash_source(candidate),
                 )
@@ -127,9 +129,8 @@ def collect_sources(raw_sources: list[str], workspace_root: Path) -> list[Source
     return results
 
 
-def load_template(workspace_root: Path) -> Template:
-    template_path = workspace_root / TEMPLATE_PATH
-    return Template(template_path.read_text())
+def load_template() -> Template:
+    return Template(TEMPLATE_PATH.read_text())
 
 
 def bullet_block(values: list[str], fallback: str) -> str:
@@ -139,7 +140,7 @@ def bullet_block(values: list[str], fallback: str) -> str:
 
 
 def render_skill_markdown(args: argparse.Namespace, sources: list[SourceRecord], workspace_root: Path) -> str:
-    template = load_template(workspace_root)
+    template = load_template()
     source_lines = "\n".join(
         f"- `{source.path}`" + (f" (sha256: `{source.sha256}`)" if source.sha256 else " (reference only)")
         for source in sources
@@ -241,11 +242,11 @@ def main() -> None:
         json.dumps(
             {
                 "status": "ok",
-                "skillRoot": str(skill_root.relative_to(workspace_root)),
+                "skillRoot": os.path.relpath(skill_root, workspace_root),
                 "generatedFiles": [
-                    str((skill_root / "SKILL.md").relative_to(workspace_root)),
-                    str((skill_root / "skill.json").relative_to(workspace_root)),
-                    str((skill_root / "README.md").relative_to(workspace_root)),
+                    os.path.relpath(skill_root / "SKILL.md", workspace_root),
+                    os.path.relpath(skill_root / "skill.json", workspace_root),
+                    os.path.relpath(skill_root / "README.md", workspace_root),
                 ],
                 "maturity": args.maturity,
             },

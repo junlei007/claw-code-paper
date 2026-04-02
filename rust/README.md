@@ -49,6 +49,17 @@ survey_metadata
 - regression external plugin 原型长什么样：
   [`../examples/external-plugins/research-regression/README.md`](../examples/external-plugins/research-regression/README.md)
 
+最短命令入口：
+
+```bash
+./target/debug/claw project-skill init survey-cleaning-sop \
+  --title "Survey Cleaning SOP" \
+  --description "Draft workflow for local survey cleaning." \
+  --domain survey \
+  --use-when "Use before scoring." \
+  --source ../docs/research-method-standards.md
+```
+
 ---
 
 ## Workspace 定位

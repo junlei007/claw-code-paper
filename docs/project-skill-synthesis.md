@@ -12,7 +12,20 @@ It is the first implementation step of the “controlled self-extension” direc
 
 When a user provides papers, SOPs, codebooks, or internal notes, we should be able to quickly create a **project-local skill draft** without mutating the runtime or prematurely promoting the workflow into a plugin.
 
-The current MVP does this with a scaffold command:
+The current MVP does this with either:
+
+```bash
+cd rust
+./target/debug/claw project-skill init survey-cleaning-sop \
+  --title "Survey Cleaning SOP" \
+  --description "Draft workflow for survey data cleaning and coding checks." \
+  --domain survey \
+  --use-when "Use when a project needs a repeatable local workflow for questionnaire cleaning before scoring." \
+  --source docs/research-method-standards.md \
+  --source docs/research-method-registry.md
+```
+
+or the lower-level scaffold script:
 
 ```bash
 python3 tools/scaffold_project_skill.py \
@@ -40,6 +53,13 @@ Each generated skill draft contains:
 - `SKILL.md`
 - `skill.json`
 - `README.md`
+
+Quick validation:
+
+```bash
+cd rust
+./target/debug/claw project-skill validate ../.claw/project-skills/survey-cleaning-sop
+```
 
 ---
 

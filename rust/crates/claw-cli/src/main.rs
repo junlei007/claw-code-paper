@@ -117,6 +117,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         CliAction::Login => run_login()?,
         CliAction::Logout => run_logout()?,
         CliAction::Init { options } => run_init(&options)?,
+        CliAction::ProjectSkill { command } => run_project_skill_command(&command)?,
         CliAction::Repl {
             model,
             provider,
@@ -160,6 +161,9 @@ enum CliAction {
     Init {
         options: InitOptions,
     },
+    ProjectSkill {
+        command: ProjectSkillCommand,
+    },
     Repl {
         model: Option<String>,
         provider: Option<String>,
@@ -174,6 +178,27 @@ enum CliAction {
 enum CliOutputFormat {
     Text,
     Json,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ProjectSkillCommand {
+    Init {
+        slug: String,
+        title: String,
+        description: String,
+        domain: String,
+        use_when: String,
+        sources: Vec<String>,
+        workflow_steps: Vec<String>,
+        outputs: Vec<String>,
+        limits: Vec<String>,
+        generated_by: String,
+        maturity: String,
+        output_root: Option<PathBuf>,
+    },
+    Validate {
+        path: PathBuf,
+    },
 }
 
 impl CliOutputFormat {
@@ -329,6 +354,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         "login" => Ok(CliAction::Login),
         "logout" => Ok(CliAction::Logout),
         "init" => parse_init_args(&rest[1..]),
+        "project-skill" => parse_project_skill_args(&rest[1..]),
         "prompt" => {
             let prompt = rest[1..].join(" ");
             if prompt.trim().is_empty() {
@@ -399,6 +425,173 @@ fn parse_init_args(args: &[String]) -> Result<CliAction, String> {
     }
 
     Ok(CliAction::Init { options })
+}
+
+fn parse_project_skill_args(args: &[String]) -> Result<CliAction, String> {
+    let Some(subcommand) = args.first().map(String::as_str) else {
+        return Err(
+            "project-skill requires a subcommand: init <slug> or validate <path>".to_string(),
+        );
+    };
+
+    match subcommand {
+        "--help" | "-h" => Ok(CliAction::Help),
+        "init" => parse_project_skill_init_args(&args[1..]),
+        "validate" => parse_project_skill_validate_args(&args[1..]),
+        other => Err(format!(
+            "unknown project-skill subcommand '{other}'. Use init <slug> or validate <path>."
+        )),
+    }
+}
+
+fn parse_project_skill_init_args(args: &[String]) -> Result<CliAction, String> {
+    let Some(slug) = args.first().filter(|value| !value.starts_with('-')) else {
+        return Err("project-skill init requires a slug".to_string());
+    };
+
+    let mut title = None;
+    let mut description = None;
+    let mut domain = None;
+    let mut use_when = None;
+    let mut sources = Vec::new();
+    let mut workflow_steps = Vec::new();
+    let mut outputs = Vec::new();
+    let mut limits = Vec::new();
+    let mut generated_by = "claw project-skill init".to_string();
+    let mut maturity = "draft".to_string();
+    let mut output_root = None;
+    let mut index = 1;
+
+    while index < args.len() {
+        match args[index].as_str() {
+            "--help" | "-h" => return Ok(CliAction::Help),
+            "--title" => {
+                title = Some(
+                    args.get(index + 1)
+                        .ok_or_else(|| "missing value for --title".to_string())?
+                        .clone(),
+                );
+                index += 2;
+            }
+            "--description" => {
+                description = Some(
+                    args.get(index + 1)
+                        .ok_or_else(|| "missing value for --description".to_string())?
+                        .clone(),
+                );
+                index += 2;
+            }
+            "--domain" => {
+                domain = Some(
+                    args.get(index + 1)
+                        .ok_or_else(|| "missing value for --domain".to_string())?
+                        .clone(),
+                );
+                index += 2;
+            }
+            "--use-when" => {
+                use_when = Some(
+                    args.get(index + 1)
+                        .ok_or_else(|| "missing value for --use-when".to_string())?
+                        .clone(),
+                );
+                index += 2;
+            }
+            "--source" => {
+                sources.push(
+                    args.get(index + 1)
+                        .ok_or_else(|| "missing value for --source".to_string())?
+                        .clone(),
+                );
+                index += 2;
+            }
+            "--workflow-step" => {
+                workflow_steps.push(
+                    args.get(index + 1)
+                        .ok_or_else(|| "missing value for --workflow-step".to_string())?
+                        .clone(),
+                );
+                index += 2;
+            }
+            "--output" => {
+                outputs.push(
+                    args.get(index + 1)
+                        .ok_or_else(|| "missing value for --output".to_string())?
+                        .clone(),
+                );
+                index += 2;
+            }
+            "--limit" => {
+                limits.push(
+                    args.get(index + 1)
+                        .ok_or_else(|| "missing value for --limit".to_string())?
+                        .clone(),
+                );
+                index += 2;
+            }
+            "--generated-by" => {
+                generated_by = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --generated-by".to_string())?
+                    .clone();
+                index += 2;
+            }
+            "--maturity" => {
+                maturity = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --maturity".to_string())?
+                    .clone();
+                index += 2;
+            }
+            "--output-root" => {
+                output_root =
+                    Some(PathBuf::from(args.get(index + 1).ok_or_else(|| {
+                        "missing value for --output-root".to_string()
+                    })?));
+                index += 2;
+            }
+            other => {
+                return Err(format!("unknown project-skill init option: {other}"));
+            }
+        }
+    }
+
+    if sources.is_empty() {
+        return Err("project-skill init requires at least one --source".to_string());
+    }
+
+    Ok(CliAction::ProjectSkill {
+        command: ProjectSkillCommand::Init {
+            slug: slug.clone(),
+            title: title.ok_or_else(|| "project-skill init requires --title".to_string())?,
+            description: description
+                .ok_or_else(|| "project-skill init requires --description".to_string())?,
+            domain: domain.ok_or_else(|| "project-skill init requires --domain".to_string())?,
+            use_when: use_when
+                .ok_or_else(|| "project-skill init requires --use-when".to_string())?,
+            sources,
+            workflow_steps,
+            outputs,
+            limits,
+            generated_by,
+            maturity,
+            output_root,
+        },
+    })
+}
+
+fn parse_project_skill_validate_args(args: &[String]) -> Result<CliAction, String> {
+    let Some(path) = args.first() else {
+        return Err("project-skill validate requires a path".to_string());
+    };
+    if args.len() > 1 {
+        return Err("project-skill validate accepts exactly one path".to_string());
+    }
+    Ok(CliAction::ProjectSkill {
+        command: ProjectSkillCommand::Validate {
+            path: PathBuf::from(path),
+        },
+    })
 }
 
 fn parse_direct_slash_cli_action(rest: &[String]) -> Result<CliAction, String> {
@@ -2170,6 +2363,161 @@ fn run_init(options: &InitOptions) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn run_project_skill_command(
+    command: &ProjectSkillCommand,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let cwd = env::current_dir()?;
+    let script_path = find_project_skill_scaffold_script(&cwd)?;
+    let mut process = Command::new("python3");
+    process.arg(&script_path).current_dir(&cwd);
+
+    match command {
+        ProjectSkillCommand::Init {
+            slug,
+            title,
+            description,
+            domain,
+            use_when,
+            sources,
+            workflow_steps,
+            outputs,
+            limits,
+            generated_by,
+            maturity,
+            output_root,
+        } => {
+            process
+                .arg("--slug")
+                .arg(slug)
+                .arg("--title")
+                .arg(title)
+                .arg("--description")
+                .arg(description)
+                .arg("--domain")
+                .arg(domain)
+                .arg("--use-when")
+                .arg(use_when)
+                .arg("--generated-by")
+                .arg(generated_by)
+                .arg("--maturity")
+                .arg(maturity);
+
+            for source in sources {
+                process.arg("--source").arg(source);
+            }
+            for step in workflow_steps {
+                process.arg("--workflow-step").arg(step);
+            }
+            for output in outputs {
+                process.arg("--output").arg(output);
+            }
+            for limit in limits {
+                process.arg("--limit").arg(limit);
+            }
+            if let Some(root) = output_root {
+                process.arg("--output-root").arg(root);
+            }
+        }
+        ProjectSkillCommand::Validate { path } => {
+            let status = validate_project_skill_path(path)?;
+            println!("{status}");
+            return Ok(());
+        }
+    }
+
+    let output = process.output()?;
+    if !output.stdout.is_empty() {
+        print!("{}", String::from_utf8_lossy(&output.stdout));
+    }
+    if !output.stderr.is_empty() {
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    }
+    if !output.status.success() {
+        return Err("project-skill scaffold command failed".into());
+    }
+    Ok(())
+}
+
+fn validate_project_skill_path(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let candidate = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        env::current_dir()?.join(path)
+    };
+    let skill_root = if candidate.is_dir() {
+        candidate
+    } else {
+        candidate
+            .parent()
+            .ok_or_else(|| "project-skill validate path has no parent".to_string())?
+            .to_path_buf()
+    };
+    let skill_md = skill_root.join("SKILL.md");
+    let metadata = skill_root.join("skill.json");
+    let readme = skill_root.join("README.md");
+
+    let mut missing = Vec::new();
+    for required in [&skill_md, &metadata, &readme] {
+        if !required.is_file() {
+            missing.push(required.display().to_string());
+        }
+    }
+    if !missing.is_empty() {
+        return Err(format!("missing project-skill files: {}", missing.join(", ")).into());
+    }
+
+    let raw = fs::read_to_string(&metadata)?;
+    let value: serde_json::Value = serde_json::from_str(&raw)?;
+    let required_fields = [
+        "source_materials",
+        "generated_at",
+        "generated_by",
+        "domain",
+        "use_when",
+        "input_expectations",
+        "workflow",
+        "outputs",
+        "limits",
+        "verification_status",
+        "maturity_level",
+    ];
+    let mut missing_fields = Vec::new();
+    for field in required_fields {
+        if value.get(field).is_none() {
+            missing_fields.push(field);
+        }
+    }
+    if !missing_fields.is_empty() {
+        return Err(format!(
+            "project-skill metadata is missing required fields: {}",
+            missing_fields.join(", ")
+        )
+        .into());
+    }
+
+    Ok(format!(
+        "Project skill validation\n  Result           valid\n  Skill root       {}",
+        skill_root.display()
+    ))
+}
+
+fn find_project_skill_scaffold_script(cwd: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    for ancestor in cwd.ancestors() {
+        let candidate = ancestor.join("tools/scaffold_project_skill.py");
+        if candidate.is_file() {
+            return Ok(candidate);
+        }
+    }
+
+    let fallback =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../tools/scaffold_project_skill.py");
+    if fallback.is_file() {
+        return Ok(fallback);
+    }
+
+    Err("could not locate tools/scaffold_project_skill.py".into())
+}
+
 fn normalize_permission_mode(mode: &str) -> Option<&'static str> {
     match mode.trim() {
         "read-only" => Some("read-only"),
@@ -3938,6 +4286,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "  {cli_name} login")?;
     writeln!(out, "  {cli_name} logout")?;
     writeln!(out, "  {cli_name} init [--research survey]")?;
+    writeln!(out, "  {cli_name} project-skill <init|validate> [...]")?;
     writeln!(out)?;
     writeln!(out, "Flags:")?;
     writeln!(
@@ -3996,6 +4345,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "  {cli_name} /skills")?;
     writeln!(out, "  {cli_name} login")?;
     writeln!(out, "  {cli_name} init --research survey")?;
+    writeln!(
+        out,
+        "  {cli_name} project-skill init survey-cleaning-sop --title \"Survey Cleaning SOP\" --description \"Draft workflow for local survey cleaning.\" --domain survey --use-when \"Use before scoring\" --source docs/research-method-standards.md"
+    )?;
     Ok(())
 }
 
@@ -4015,7 +4368,7 @@ mod tests {
         render_repl_help, resolve_client_selection, resolve_model_alias, response_to_events,
         resume_supported_slash_commands, status_context, CliAction, CliOutputFormat, InitOptions,
         InitResearchProfile, InternalPromptProgressEvent, InternalPromptProgressState,
-        SlashCommand, StatusUsage,
+        ProjectSkillCommand, SlashCommand, StatusUsage,
     };
     use api::{MessageResponse, OutputContentBlock, Usage};
     use plugins::{PluginTool, PluginToolDefinition, PluginToolPermission};
@@ -4415,6 +4768,61 @@ mod tests {
     }
 
     #[test]
+    fn parses_project_skill_init_subcommand() {
+        let args = vec![
+            "project-skill".to_string(),
+            "init".to_string(),
+            "survey-cleaning-sop".to_string(),
+            "--title".to_string(),
+            "Survey Cleaning SOP".to_string(),
+            "--description".to_string(),
+            "Draft workflow".to_string(),
+            "--domain".to_string(),
+            "survey".to_string(),
+            "--use-when".to_string(),
+            "Use before scoring".to_string(),
+            "--source".to_string(),
+            "docs/research-method-standards.md".to_string(),
+        ];
+        assert_eq!(
+            parse_args(&args).expect("project-skill init should parse"),
+            CliAction::ProjectSkill {
+                command: ProjectSkillCommand::Init {
+                    slug: "survey-cleaning-sop".to_string(),
+                    title: "Survey Cleaning SOP".to_string(),
+                    description: "Draft workflow".to_string(),
+                    domain: "survey".to_string(),
+                    use_when: "Use before scoring".to_string(),
+                    sources: vec!["docs/research-method-standards.md".to_string()],
+                    workflow_steps: Vec::new(),
+                    outputs: Vec::new(),
+                    limits: Vec::new(),
+                    generated_by: "claw project-skill init".to_string(),
+                    maturity: "draft".to_string(),
+                    output_root: None,
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn parses_project_skill_validate_subcommand() {
+        let args = vec![
+            "project-skill".to_string(),
+            "validate".to_string(),
+            ".claw/project-skills/survey-cleaning-sop".to_string(),
+        ];
+        assert_eq!(
+            parse_args(&args).expect("project-skill validate should parse"),
+            CliAction::ProjectSkill {
+                command: ProjectSkillCommand::Validate {
+                    path: PathBuf::from(".claw/project-skills/survey-cleaning-sop"),
+                }
+            }
+        );
+    }
+
+    #[test]
     fn parses_resume_flag_with_slash_command() {
         let args = vec![
             "--resume".to_string(),
@@ -4595,6 +5003,7 @@ mod tests {
         print_help_to(&mut help).expect("help should render");
         let help = String::from_utf8(help).expect("help should be utf8");
         assert!(help.contains("claw init [--research survey]"));
+        assert!(help.contains("claw project-skill <init|validate> [...]"));
         assert!(help.contains("claw agents"));
         assert!(help.contains("claw skills"));
         assert!(help.contains("claw /skills"));
