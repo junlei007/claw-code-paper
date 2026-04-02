@@ -1,9 +1,5 @@
 # claw-code-paper
 
-<p align="center">
-  <img src="assets/claw-research-icon.svg" alt="claw-code-paper research icon" width="180" />
-</p>
-
 一个 **Rust-first 的科研数据分析智能体 CLI**。
 
 当前项目重点不是做通用代码助手，而是把 Claw/Claude Code 风格的 agent runtime，改造成更适合**问卷研究、量表分析、科研数据处理与分析报告生成**的工作台。
