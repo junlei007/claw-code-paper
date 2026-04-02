@@ -718,7 +718,10 @@ fn parse_optional_plugin_config(root: &JsonValue) -> Result<RuntimePluginConfig,
     let plugins = expect_object(plugins_value, "merged settings.plugins")?;
 
     if let Some(enabled_value) = plugins.get("enabled") {
-        config.enabled_plugins = parse_bool_map(enabled_value, "merged settings.plugins.enabled")?;
+        config.enabled_plugins.extend(parse_bool_map(
+            enabled_value,
+            "merged settings.plugins.enabled",
+        )?);
     }
     config.external_directories =
         optional_string_array(plugins, "externalDirectories", "merged settings.plugins")?
@@ -1474,6 +1477,57 @@ mod tests {
             Some("plugin-cache/installed.json")
         );
         assert_eq!(loaded.plugins().bundled_root(), Some("./bundled-plugins"));
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn merges_enabled_plugins_from_legacy_and_nested_plugin_sections() {
+        let root = temp_dir();
+        let cwd = root.join("project");
+        let home = root.join("home").join(".claw");
+        fs::create_dir_all(cwd.join(".claw")).expect("project config dir");
+        fs::create_dir_all(&home).expect("home config dir");
+
+        fs::write(
+            home.join("settings.json"),
+            r#"{
+              "enabledPlugins": {
+                "research-regression@external": true
+              }
+            }"#,
+        )
+        .expect("write user settings");
+        fs::write(
+            cwd.join(".claw").join("settings.local.json"),
+            r#"{
+              "plugins": {
+                "enabled": {
+                  "research-survey@bundled": true
+                }
+              }
+            }"#,
+        )
+        .expect("write local settings");
+
+        let loaded = ConfigLoader::new(&cwd, &home)
+            .load()
+            .expect("config should load");
+
+        assert_eq!(
+            loaded
+                .plugins()
+                .enabled_plugins()
+                .get("research-regression@external"),
+            Some(&true)
+        );
+        assert_eq!(
+            loaded
+                .plugins()
+                .enabled_plugins()
+                .get("research-survey@bundled"),
+            Some(&true)
+        );
 
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }

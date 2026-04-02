@@ -60,6 +60,13 @@ survey_metadata
   --source ../docs/research-method-standards.md
 ```
 
+安装 external plugin 原型：
+
+```bash
+./target/debug/claw plugins install ../examples/external-plugins/research-regression
+./target/debug/claw plugins list
+```
+
 ---
 
 ## Workspace 定位

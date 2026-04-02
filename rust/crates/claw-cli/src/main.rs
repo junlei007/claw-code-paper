@@ -117,6 +117,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         CliAction::Login => run_login()?,
         CliAction::Logout => run_logout()?,
         CliAction::Init { options } => run_init(&options)?,
+        CliAction::Plugins { action, target } => {
+            run_plugins_command(action.as_deref(), target.as_deref())?
+        }
         CliAction::ProjectSkill { command } => run_project_skill_command(&command)?,
         CliAction::Repl {
             model,
@@ -160,6 +163,10 @@ enum CliAction {
     Logout,
     Init {
         options: InitOptions,
+    },
+    Plugins {
+        action: Option<String>,
+        target: Option<String>,
     },
     ProjectSkill {
         command: ProjectSkillCommand,
@@ -354,6 +361,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         "login" => Ok(CliAction::Login),
         "logout" => Ok(CliAction::Logout),
         "init" => parse_init_args(&rest[1..]),
+        "plugin" | "plugins" => parse_plugins_args(&rest[1..]),
         "project-skill" => parse_project_skill_args(&rest[1..]),
         "prompt" => {
             let prompt = rest[1..].join(" ");
@@ -425,6 +433,20 @@ fn parse_init_args(args: &[String]) -> Result<CliAction, String> {
     }
 
     Ok(CliAction::Init { options })
+}
+
+fn parse_plugins_args(args: &[String]) -> Result<CliAction, String> {
+    if matches!(args.first().map(String::as_str), Some("--help" | "-h")) {
+        return Ok(CliAction::Help);
+    }
+    let action = args.first().cloned();
+    let target = args.get(1).cloned();
+    if args.len() > 2 {
+        return Err(
+            "plugins accepts at most two positional arguments: [action] [target]".to_string(),
+        );
+    }
+    Ok(CliAction::Plugins { action, target })
 }
 
 fn parse_project_skill_args(args: &[String]) -> Result<CliAction, String> {
@@ -2438,6 +2460,19 @@ fn run_project_skill_command(
     Ok(())
 }
 
+fn run_plugins_command(
+    action: Option<&str>,
+    target: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let cwd = env::current_dir()?;
+    let loader = ConfigLoader::default_for(&cwd);
+    let runtime_config = loader.load()?;
+    let mut manager = build_plugin_manager(&cwd, &loader, &runtime_config);
+    let result = handle_plugins_slash_command(action, target, &mut manager)?;
+    println!("{}", result.message);
+    Ok(())
+}
+
 fn validate_project_skill_path(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
     let candidate = if path.is_absolute() {
         path.to_path_buf()
@@ -4286,6 +4321,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "  {cli_name} login")?;
     writeln!(out, "  {cli_name} logout")?;
     writeln!(out, "  {cli_name} init [--research survey]")?;
+    writeln!(
+        out,
+        "  {cli_name} plugins [list|install <path>|enable <name>|disable <name>|uninstall <id>|update <id>]"
+    )?;
     writeln!(out, "  {cli_name} project-skill <init|validate> [...]")?;
     writeln!(out)?;
     writeln!(out, "Flags:")?;
@@ -4345,6 +4384,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "  {cli_name} /skills")?;
     writeln!(out, "  {cli_name} login")?;
     writeln!(out, "  {cli_name} init --research survey")?;
+    writeln!(
+        out,
+        "  {cli_name} plugins install ../examples/external-plugins/research-regression"
+    )?;
     writeln!(
         out,
         "  {cli_name} project-skill init survey-cleaning-sop --title \"Survey Cleaning SOP\" --description \"Draft workflow for local survey cleaning.\" --domain survey --use-when \"Use before scoring\" --source docs/research-method-standards.md"
@@ -4823,6 +4866,41 @@ mod tests {
     }
 
     #[test]
+    fn parses_plugins_subcommand() {
+        assert_eq!(
+            parse_args(&["plugins".to_string()]).expect("plugins list should parse"),
+            CliAction::Plugins {
+                action: None,
+                target: None,
+            }
+        );
+        assert_eq!(
+            parse_args(&[
+                "plugins".to_string(),
+                "install".to_string(),
+                "../examples/external-plugins/research-regression".to_string(),
+            ])
+            .expect("plugins install should parse"),
+            CliAction::Plugins {
+                action: Some("install".to_string()),
+                target: Some("../examples/external-plugins/research-regression".to_string()),
+            }
+        );
+        assert_eq!(
+            parse_args(&[
+                "plugin".to_string(),
+                "disable".to_string(),
+                "research-regression".to_string(),
+            ])
+            .expect("plugin alias should parse"),
+            CliAction::Plugins {
+                action: Some("disable".to_string()),
+                target: Some("research-regression".to_string()),
+            }
+        );
+    }
+
+    #[test]
     fn parses_resume_flag_with_slash_command() {
         let args = vec![
             "--resume".to_string(),
@@ -5003,6 +5081,11 @@ mod tests {
         print_help_to(&mut help).expect("help should render");
         let help = String::from_utf8(help).expect("help should be utf8");
         assert!(help.contains("claw init [--research survey]"));
+        assert!(
+            help.contains(
+                "claw plugins [list|install <path>|enable <name>|disable <name>|uninstall <id>|update <id>]"
+            )
+        );
         assert!(help.contains("claw project-skill <init|validate> [...]"));
         assert!(help.contains("claw agents"));
         assert!(help.contains("claw skills"));
