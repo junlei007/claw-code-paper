@@ -82,6 +82,16 @@ cd rust
 - evaluation examples 是否还停留在 placeholder
 - outputs 是否还是过于泛化
 
+如果你想让 agent 机器读取这些治理结果，可以直接用 JSON：
+
+```bash
+./target/debug/claw --output-format json project-skill validate ./.claw/project-skills/survey-cleaning-sop
+./target/debug/claw --output-format json project-skill doctor ./.claw/project-skills/survey-cleaning-sop
+./target/debug/claw --output-format json project-skill promote ./.claw/project-skills/survey-cleaning-sop \
+  --to project \
+  --held-out-validation passed
+```
+
 Promotion example:
 
 ```bash

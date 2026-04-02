@@ -63,6 +63,12 @@ survey_metadata
 ./target/debug/claw project-skill doctor ./.claw/project-skills/survey-cleaning-sop
 ```
 
+如果要给 agent 自动消费，可以加：
+
+```bash
+./target/debug/claw --output-format json project-skill validate ./.claw/project-skills/survey-cleaning-sop
+```
+
 提升成熟度：
 
 ```bash

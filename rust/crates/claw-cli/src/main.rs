@@ -120,7 +120,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         CliAction::Plugins { action, target } => {
             run_plugins_command(action.as_deref(), target.as_deref())?
         }
-        CliAction::ProjectSkill { command } => run_project_skill_command(&command)?,
+        CliAction::ProjectSkill {
+            command,
+            output_format,
+        } => run_project_skill_command(&command, output_format)?,
         CliAction::Repl {
             model,
             provider,
@@ -170,6 +173,7 @@ enum CliAction {
     },
     ProjectSkill {
         command: ProjectSkillCommand,
+        output_format: CliOutputFormat,
     },
     Repl {
         model: Option<String>,
@@ -377,7 +381,13 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         "logout" => Ok(CliAction::Logout),
         "init" => parse_init_args(&rest[1..]),
         "plugin" | "plugins" => parse_plugins_args(&rest[1..]),
-        "project-skill" => parse_project_skill_args(&rest[1..]),
+        "project-skill" => match parse_project_skill_args(&rest[1..])? {
+            CliAction::ProjectSkill { command, .. } => Ok(CliAction::ProjectSkill {
+                command,
+                output_format,
+            }),
+            other => Ok(other),
+        },
         "prompt" => {
             let prompt = rest[1..].join(" ");
             if prompt.trim().is_empty() {
@@ -674,6 +684,7 @@ fn parse_project_skill_init_args(args: &[String]) -> Result<CliAction, String> {
             openclaw_root,
             claude_root,
         },
+        output_format: CliOutputFormat::Text,
     })
 }
 
@@ -688,6 +699,7 @@ fn parse_project_skill_validate_args(args: &[String]) -> Result<CliAction, Strin
         command: ProjectSkillCommand::Validate {
             path: PathBuf::from(path),
         },
+        output_format: CliOutputFormat::Text,
     })
 }
 
@@ -741,6 +753,7 @@ fn parse_project_skill_promote_args(args: &[String]) -> Result<CliAction, String
             verification_status,
             held_out_validation_status,
         },
+        output_format: CliOutputFormat::Text,
     })
 }
 
@@ -755,6 +768,7 @@ fn parse_project_skill_doctor_args(args: &[String]) -> Result<CliAction, String>
         command: ProjectSkillCommand::Doctor {
             path: PathBuf::from(path),
         },
+        output_format: CliOutputFormat::Text,
     })
 }
 
@@ -2529,6 +2543,7 @@ fn run_init(options: &InitOptions) -> Result<(), Box<dyn std::error::Error>> {
 
 fn run_project_skill_command(
     command: &ProjectSkillCommand,
+    output_format: CliOutputFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let cwd = env::current_dir()?;
 
@@ -2608,7 +2623,16 @@ fn run_project_skill_command(
 
             let output = process.output()?;
             if !output.stdout.is_empty() {
-                print!("{}", String::from_utf8_lossy(&output.stdout));
+                match output_format {
+                    CliOutputFormat::Text => {
+                        print!("{}", String::from_utf8_lossy(&output.stdout));
+                    }
+                    CliOutputFormat::Json => {
+                        let raw = String::from_utf8_lossy(&output.stdout);
+                        let parsed: serde_json::Value = serde_json::from_str(&raw)?;
+                        println!("{}", serde_json::to_string_pretty(&parsed)?);
+                    }
+                }
             }
             if !output.stderr.is_empty() {
                 eprint!("{}", String::from_utf8_lossy(&output.stderr));
@@ -2619,8 +2643,11 @@ fn run_project_skill_command(
             Ok(())
         }
         ProjectSkillCommand::Validate { path } => {
-            let status = validate_project_skill_path(path)?;
-            println!("{status}");
+            let report = validate_project_skill_report(path)?;
+            match output_format {
+                CliOutputFormat::Text => println!("{}", report.text),
+                CliOutputFormat::Json => println!("{}", serde_json::to_string_pretty(&report.json)?),
+            }
             Ok(())
         }
         ProjectSkillCommand::Promote {
@@ -2629,18 +2656,24 @@ fn run_project_skill_command(
             verification_status,
             held_out_validation_status,
         } => {
-            let status = promote_project_skill(
+            let report = promote_project_skill(
                 path,
                 to,
                 verification_status.as_deref(),
                 held_out_validation_status.as_deref(),
             )?;
-            println!("{status}");
+            match output_format {
+                CliOutputFormat::Text => println!("{}", report.text),
+                CliOutputFormat::Json => println!("{}", serde_json::to_string_pretty(&report.json)?),
+            }
             Ok(())
         }
         ProjectSkillCommand::Doctor { path } => {
-            let status = doctor_project_skill(path)?;
-            println!("{status}");
+            let report = doctor_project_skill(path)?;
+            match output_format {
+                CliOutputFormat::Text => println!("{}", report.text),
+                CliOutputFormat::Json => println!("{}", serde_json::to_string_pretty(&report.json)?),
+            }
             Ok(())
         }
     }
@@ -2707,6 +2740,11 @@ fn metadata_array<'a>(
     field: &str,
 ) -> Option<&'a Vec<serde_json::Value>> {
     value.get(field).and_then(|entry| entry.as_array())
+}
+
+struct ProjectSkillCommandReport {
+    text: String,
+    json: serde_json::Value,
 }
 
 fn validate_project_skill_metadata(value: &serde_json::Value) -> Result<(), Box<dyn std::error::Error>> {
@@ -2998,7 +3036,9 @@ fn project_skill_doctor_diagnostics(value: &serde_json::Value) -> Vec<(String, S
     diagnostics
 }
 
-fn validate_project_skill_path(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
+fn validate_project_skill_report(
+    path: &Path,
+) -> Result<ProjectSkillCommandReport, Box<dyn std::error::Error>> {
     let skill_root = resolve_project_skill_root(path)?;
     ensure_project_skill_files(&skill_root)?;
     let value = read_project_skill_metadata(&skill_root)?;
@@ -3025,7 +3065,7 @@ fn validate_project_skill_path(path: &Path) -> Result<String, Box<dyn std::error
     } else {
         lines.push(format!("  Warnings         {}", warnings.len()));
         lines.push("Warnings".to_string());
-        for warning in warnings {
+        for warning in &warnings {
             lines.push(format!("  - {warning}"));
         }
     }
@@ -3035,15 +3075,27 @@ fn validate_project_skill_path(path: &Path) -> Result<String, Box<dyn std::error
         lines.push("  - no action required".to_string());
     } else {
         lines.push("Remediation".to_string());
-        for item in remediation {
+        for item in &remediation {
             lines.push(format!("  - {item}"));
         }
     }
 
-    Ok(lines.join("\n"))
+    Ok(ProjectSkillCommandReport {
+        text: lines.join("\n"),
+        json: json!({
+            "command": "project-skill.validate",
+            "result": "valid",
+            "skill_root": skill_root.display().to_string(),
+            "maturity": maturity,
+            "verification_status": verification_status,
+            "held_out_validation_status": held_out_validation_status,
+            "warnings": warnings,
+            "remediation": remediation,
+        }),
+    })
 }
 
-fn doctor_project_skill(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
+fn doctor_project_skill(path: &Path) -> Result<ProjectSkillCommandReport, Box<dyn std::error::Error>> {
     let skill_root = resolve_project_skill_root(path)?;
     ensure_project_skill_files(&skill_root)?;
     let value = read_project_skill_metadata(&skill_root)?;
@@ -3074,7 +3126,7 @@ fn doctor_project_skill(path: &Path) -> Result<String, Box<dyn std::error::Error
     if diagnostics.is_empty() {
         lines.push("  - no additional non-blocking issues detected".to_string());
     } else {
-        for (severity, message) in diagnostics {
+        for (severity, message) in &diagnostics {
             lines.push(format!("  - [{severity}] {message}"));
         }
     }
@@ -3083,7 +3135,7 @@ fn doctor_project_skill(path: &Path) -> Result<String, Box<dyn std::error::Error
     if warnings.is_empty() {
         lines.push("  - none".to_string());
     } else {
-        for warning in warnings {
+        for warning in &warnings {
             lines.push(format!("  - {warning}"));
         }
     }
@@ -3092,12 +3144,26 @@ fn doctor_project_skill(path: &Path) -> Result<String, Box<dyn std::error::Error
     if remediation.is_empty() {
         lines.push("  - no action required".to_string());
     } else {
-        for item in remediation {
+        for item in &remediation {
             lines.push(format!("  - {item}"));
         }
     }
 
-    Ok(lines.join("\n"))
+    Ok(ProjectSkillCommandReport {
+        text: lines.join("\n"),
+        json: json!({
+            "command": "project-skill.doctor",
+            "skill_root": skill_root.display().to_string(),
+            "maturity": metadata_string(&value, "maturity_level").unwrap_or("unknown"),
+            "verification_status": metadata_string(&value, "verification_status").unwrap_or("unknown"),
+            "held_out_validation_status": metadata_string(&value, "held_out_validation_status").unwrap_or("unknown"),
+            "diagnostics": diagnostics.iter().map(|(severity, message)| {
+                json!({"severity": severity, "message": message})
+            }).collect::<Vec<_>>(),
+            "warnings": warnings,
+            "remediation": remediation,
+        }),
+    })
 }
 
 fn promote_project_skill(
@@ -3105,7 +3171,7 @@ fn promote_project_skill(
     to: &str,
     verification_status: Option<&str>,
     held_out_validation_status: Option<&str>,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<ProjectSkillCommandReport, Box<dyn std::error::Error>> {
     let skill_root = resolve_project_skill_root(path)?;
     ensure_project_skill_files(&skill_root)?;
     let mut value = read_project_skill_metadata(&skill_root)?;
@@ -3149,16 +3215,27 @@ fn promote_project_skill(
         serde_json::to_string_pretty(&value)? + "\n",
     )?;
 
-    Ok(format!(
-        "Project skill promotion\n  Result           promoted\n  Skill root       {}\n  Maturity         {}\n  Verification     {}\n  Held-out         {}",
-        skill_root.display(),
-        to,
-        effective_verification_status,
-        value
-            .get("held_out_validation_status")
-            .and_then(|entry| entry.as_str())
-            .unwrap_or("pending")
-    ))
+    let held_out = value
+        .get("held_out_validation_status")
+        .and_then(|entry| entry.as_str())
+        .unwrap_or("pending");
+    Ok(ProjectSkillCommandReport {
+        text: format!(
+            "Project skill promotion\n  Result           promoted\n  Skill root       {}\n  Maturity         {}\n  Verification     {}\n  Held-out         {}",
+            skill_root.display(),
+            to,
+            effective_verification_status,
+            held_out
+        ),
+        json: json!({
+            "command": "project-skill.promote",
+            "result": "promoted",
+            "skill_root": skill_root.display().to_string(),
+            "maturity": to,
+            "verification_status": effective_verification_status,
+            "held_out_validation_status": held_out,
+        }),
+    })
 }
 
 fn find_project_skill_scaffold_script(cwd: &Path) -> Result<PathBuf, Box<dyn std::error::Error>> {
@@ -5043,7 +5120,7 @@ mod tests {
         permission_policy, print_help_to, push_output_block, render_config_report,
         render_memory_report, render_repl_help, resolve_client_selection, resolve_model_alias,
         response_to_events, resume_supported_slash_commands, status_context,
-        validate_project_skill_path, CliAction, CliOutputFormat, InitOptions,
+        validate_project_skill_report, CliAction, CliOutputFormat, InitOptions,
         InitResearchProfile, InternalPromptProgressEvent, InternalPromptProgressState,
         ProjectSkillCommand, SlashCommand, StatusUsage,
     };
@@ -5483,7 +5560,8 @@ mod tests {
                     targets: Vec::new(),
                     openclaw_root: None,
                     claude_root: None,
-                }
+                },
+                output_format: CliOutputFormat::Text,
             }
         );
     }
@@ -5500,7 +5578,8 @@ mod tests {
             CliAction::ProjectSkill {
                 command: ProjectSkillCommand::Validate {
                     path: PathBuf::from(".claw/project-skills/survey-cleaning-sop"),
-                }
+                },
+                output_format: CliOutputFormat::Text,
             }
         );
     }
@@ -5524,7 +5603,8 @@ mod tests {
                     to: "project".to_string(),
                     verification_status: None,
                     held_out_validation_status: Some("passed".to_string()),
-                }
+                },
+                output_format: CliOutputFormat::Text,
             }
         );
     }
@@ -5541,7 +5621,28 @@ mod tests {
             CliAction::ProjectSkill {
                 command: ProjectSkillCommand::Doctor {
                     path: PathBuf::from(".claw/project-skills/survey-cleaning-sop"),
-                }
+                },
+                output_format: CliOutputFormat::Text,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_project_skill_json_output_format() {
+        let args = vec![
+            "--output-format".to_string(),
+            "json".to_string(),
+            "project-skill".to_string(),
+            "validate".to_string(),
+            ".claw/project-skills/survey-cleaning-sop".to_string(),
+        ];
+        assert_eq!(
+            parse_args(&args).expect("project-skill json output should parse"),
+            CliAction::ProjectSkill {
+                command: ProjectSkillCommand::Validate {
+                    path: PathBuf::from(".claw/project-skills/survey-cleaning-sop"),
+                },
+                output_format: CliOutputFormat::Json,
             }
         );
     }
@@ -5593,7 +5694,8 @@ mod tests {
                     targets: vec!["openclaw".to_string(), "claude-command".to_string()],
                     openclaw_root: Some(PathBuf::from(".compat/openclaw")),
                     claude_root: Some(PathBuf::from(".compat/claude")),
-                }
+                },
+                output_format: CliOutputFormat::Text,
             }
         );
     }
@@ -5647,7 +5749,8 @@ mod tests {
                     targets: Vec::new(),
                     openclaw_root: None,
                     claude_root: None,
-                }
+                },
+                output_format: CliOutputFormat::Text,
             }
         );
     }
@@ -5688,23 +5791,27 @@ mod tests {
         )
         .expect("skill json should write");
 
-        let report =
-            validate_project_skill_path(&root).expect("draft skill should validate with warnings");
+        let report = validate_project_skill_report(&root)
+            .expect("draft skill should validate with warnings");
         assert!(
-            report.contains("Warnings"),
-            "validation report should contain warnings section: {report}"
+            report.text.contains("Warnings"),
+            "validation report should contain warnings section: {}",
+            report.text
         );
         assert!(
-            report.contains("skill is still at draft maturity"),
-            "validation report should mention draft warning: {report}"
+            report.text.contains("skill is still at draft maturity"),
+            "validation report should mention draft warning: {}",
+            report.text
         );
         assert!(
-            report.contains("Remediation"),
-            "validation report should contain remediation section: {report}"
+            report.text.contains("Remediation"),
+            "validation report should contain remediation section: {}",
+            report.text
         );
         assert!(
-            report.contains("promote after validation"),
-            "validation report should include remediation guidance: {report}"
+            report.text.contains("promote after validation"),
+            "validation report should include remediation guidance: {}",
+            report.text
         );
 
         fs::remove_dir_all(&root).expect("temp skill root should clean up");
@@ -5749,16 +5856,19 @@ mod tests {
         let report =
             doctor_project_skill(&root).expect("doctor should report non-blocking findings");
         assert!(
-            report.contains("Project skill doctor"),
-            "doctor report should contain header: {report}"
+            report.text.contains("Project skill doctor"),
+            "doctor report should contain header: {}",
+            report.text
         );
         assert!(
-            report.contains("[warn] held-out validation is still pending"),
-            "doctor report should contain held-out warning: {report}"
+            report.text.contains("[warn] held-out validation is still pending"),
+            "doctor report should contain held-out warning: {}",
+            report.text
         );
         assert!(
-            report.contains("outputs still look scaffold-level"),
-            "doctor report should flag generic outputs: {report}"
+            report.text.contains("outputs still look scaffold-level"),
+            "doctor report should flag generic outputs: {}",
+            report.text
         );
 
         fs::remove_dir_all(&root).expect("temp skill root should clean up");

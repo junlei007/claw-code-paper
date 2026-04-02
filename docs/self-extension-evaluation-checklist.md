@@ -138,6 +138,13 @@ cd rust
 - 输出是不是还是模板级别
 - source 是否有 unresolved reference
 
+如果后续要让 agent 自动读取这些检查结果，建议直接使用：
+
+```bash
+./target/debug/claw --output-format json project-skill validate ./.claw/project-skills/<slug>
+./target/debug/claw --output-format json project-skill doctor ./.claw/project-skills/<slug>
+```
+
 ### `project` -> `published`
 
 至少确认：

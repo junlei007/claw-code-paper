@@ -139,6 +139,7 @@ cd rust
 
 `validate` 现在会补充 warning 和 remediation 建议，便于在 promotion 前做最后检查。
 `doctor` 适合看非阻断质量问题，比如 placeholder、泛化输出、未解析 source。
+这些治理命令也支持 `--output-format json`，便于后续 agent 自动消费。
 
 详细说明：
 
