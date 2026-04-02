@@ -15,6 +15,7 @@ DEFAULT_OUTPUT_ROOT = Path(".claw/project-skills")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE_PATH = REPO_ROOT / "templates/project-skill/SKILL.md.tmpl"
 MATURITY_LEVELS = ("draft", "project", "published", "deprecated")
+TARGETS = ("canonical", "openclaw", "claude-command", "claude-agent", "all")
 
 
 @dataclass
@@ -22,6 +23,12 @@ class SourceRecord:
     path: str
     exists: bool
     sha256: str | None
+
+
+@dataclass
+class ExportRecord:
+    target: str
+    path: str
 
 
 def utc_now() -> str:
@@ -98,6 +105,23 @@ def parse_args() -> argparse.Namespace:
         "--output-root",
         default=str(DEFAULT_OUTPUT_ROOT),
         help="Directory where the skill draft should be generated",
+    )
+    parser.add_argument(
+        "--target",
+        action="append",
+        default=[],
+        choices=TARGETS,
+        help="Compatibility target to generate. Repeatable. Defaults to canonical only.",
+    )
+    parser.add_argument(
+        "--openclaw-root",
+        default=".claw/compat/openclaw",
+        help="Base directory for OpenClaw-compatible exports",
+    )
+    parser.add_argument(
+        "--claude-root",
+        default=".claw/compat/claude",
+        help="Base directory for Claude-compatible exports",
     )
     return parser.parse_args()
 
@@ -223,6 +247,136 @@ then promote the maturity level from `{args.maturity}` when validated.
     (skill_root / "README.md").write_text(content)
 
 
+def normalize_targets(raw_targets: list[str]) -> list[str]:
+    if not raw_targets:
+        return ["canonical"]
+    normalized: list[str] = []
+    for target in raw_targets:
+        expanded = (
+            ["canonical", "openclaw", "claude-command", "claude-agent"]
+            if target == "all"
+            else [target]
+        )
+        for item in expanded:
+            if item not in normalized:
+                normalized.append(item)
+    return normalized
+
+
+def write_compatibility_exports(
+    *,
+    args: argparse.Namespace,
+    workspace_root: Path,
+    canonical_skill_root: Path,
+    rendered_skill_markdown: str,
+) -> list[ExportRecord]:
+    exports: list[ExportRecord] = []
+    title = args.title
+    description = args.description
+
+    targets = normalize_targets(args.target)
+    if "canonical" in targets:
+        exports.extend(
+            [
+                ExportRecord(
+                    target="canonical",
+                    path=os.path.relpath(canonical_skill_root / "SKILL.md", workspace_root),
+                ),
+                ExportRecord(
+                    target="canonical-metadata",
+                    path=os.path.relpath(canonical_skill_root / "skill.json", workspace_root),
+                ),
+            ]
+        )
+
+    if "openclaw" in targets:
+        openclaw_root = Path(args.openclaw_root).expanduser()
+        if not openclaw_root.is_absolute():
+            openclaw_root = (workspace_root / openclaw_root).resolve()
+        target_root = openclaw_root / "skills" / args.slug
+        target_root.mkdir(parents=True, exist_ok=True)
+        (target_root / "SKILL.md").write_text(rendered_skill_markdown)
+        exports.append(
+            ExportRecord(
+                target="openclaw",
+                path=os.path.relpath(target_root / "SKILL.md", workspace_root),
+            )
+        )
+
+    if "claude-command" in targets:
+        claude_root = Path(args.claude_root).expanduser()
+        if not claude_root.is_absolute():
+            claude_root = (workspace_root / claude_root).resolve()
+        command_path = claude_root / ".claude" / "commands" / f"{args.slug}.md"
+        command_path.parent.mkdir(parents=True, exist_ok=True)
+        command_path.write_text(
+            f"""---
+description: {description}
+---
+
+# {title}
+
+Use this command when:
+
+- {args.use_when}
+
+## Source skill
+
+- canonical skill: `{os.path.relpath(canonical_skill_root / "SKILL.md", workspace_root)}`
+
+## Workflow
+
+Follow this governed workflow draft:
+
+{rendered_skill_markdown}
+"""
+        )
+        exports.append(
+            ExportRecord(
+                target="claude-command",
+                path=os.path.relpath(command_path, workspace_root),
+            )
+        )
+
+    if "claude-agent" in targets:
+        claude_root = Path(args.claude_root).expanduser()
+        if not claude_root.is_absolute():
+            claude_root = (workspace_root / claude_root).resolve()
+        agent_path = claude_root / ".claude" / "agents" / f"{args.slug}.md"
+        agent_path.parent.mkdir(parents=True, exist_ok=True)
+        agent_path.write_text(
+            f"""---
+name: {args.slug}
+description: {description}
+---
+
+# {title}
+
+You are a specialized research workflow assistant for the **{args.domain}** domain.
+
+## Use when
+
+- {args.use_when}
+
+## Operating rule
+
+Start from the governed canonical skill and preserve its limits, warnings, and source attribution.
+
+## Canonical source
+
+- `{os.path.relpath(canonical_skill_root / "SKILL.md", workspace_root)}`
+"""
+        )
+        exports.append(
+            ExportRecord(
+                target="claude-agent",
+                path=os.path.relpath(agent_path, workspace_root),
+            )
+        )
+
+    return exports
+
+
 def main() -> None:
     args = parse_args()
     workspace_root = Path.cwd().resolve()
@@ -234,9 +388,16 @@ def main() -> None:
     skill_root.mkdir(parents=True, exist_ok=True)
 
     sources = collect_sources(args.source, workspace_root)
-    (skill_root / "SKILL.md").write_text(render_skill_markdown(args, sources, workspace_root))
+    rendered_skill_markdown = render_skill_markdown(args, sources, workspace_root)
+    (skill_root / "SKILL.md").write_text(rendered_skill_markdown)
     write_metadata(skill_root, args, sources)
     write_readme(skill_root, args)
+    exports = write_compatibility_exports(
+        args=args,
+        workspace_root=workspace_root,
+        canonical_skill_root=skill_root,
+        rendered_skill_markdown=rendered_skill_markdown,
+    )
 
     print(
         json.dumps(
@@ -249,6 +410,9 @@ def main() -> None:
                     os.path.relpath(skill_root / "README.md", workspace_root),
                 ],
                 "maturity": args.maturity,
+                "exports": [
+                    {"target": export.target, "path": export.path} for export in exports
+                ],
             },
             ensure_ascii=False,
         )

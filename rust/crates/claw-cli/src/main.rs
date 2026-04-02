@@ -202,6 +202,9 @@ enum ProjectSkillCommand {
         generated_by: String,
         maturity: String,
         output_root: Option<PathBuf>,
+        targets: Vec<String>,
+        openclaw_root: Option<PathBuf>,
+        claude_root: Option<PathBuf>,
     },
     Validate {
         path: PathBuf,
@@ -482,6 +485,9 @@ fn parse_project_skill_init_args(args: &[String]) -> Result<CliAction, String> {
     let mut generated_by = "claw project-skill init".to_string();
     let mut maturity = "draft".to_string();
     let mut output_root = None;
+    let mut targets = Vec::new();
+    let mut openclaw_root = None;
+    let mut claude_root = None;
     let mut index = 1;
 
     while index < args.len() {
@@ -572,6 +578,28 @@ fn parse_project_skill_init_args(args: &[String]) -> Result<CliAction, String> {
                     })?));
                 index += 2;
             }
+            "--target" => {
+                targets.push(
+                    args.get(index + 1)
+                        .ok_or_else(|| "missing value for --target".to_string())?
+                        .clone(),
+                );
+                index += 2;
+            }
+            "--openclaw-root" => {
+                openclaw_root =
+                    Some(PathBuf::from(args.get(index + 1).ok_or_else(|| {
+                        "missing value for --openclaw-root".to_string()
+                    })?));
+                index += 2;
+            }
+            "--claude-root" => {
+                claude_root =
+                    Some(PathBuf::from(args.get(index + 1).ok_or_else(|| {
+                        "missing value for --claude-root".to_string()
+                    })?));
+                index += 2;
+            }
             other => {
                 return Err(format!("unknown project-skill init option: {other}"));
             }
@@ -598,6 +626,9 @@ fn parse_project_skill_init_args(args: &[String]) -> Result<CliAction, String> {
             generated_by,
             maturity,
             output_root,
+            targets,
+            openclaw_root,
+            claude_root,
         },
     })
 }
@@ -2407,6 +2438,9 @@ fn run_project_skill_command(
             generated_by,
             maturity,
             output_root,
+            targets,
+            openclaw_root,
+            claude_root,
         } => {
             process
                 .arg("--slug")
@@ -2438,6 +2472,15 @@ fn run_project_skill_command(
             }
             if let Some(root) = output_root {
                 process.arg("--output-root").arg(root);
+            }
+            for target in targets {
+                process.arg("--target").arg(target);
+            }
+            if let Some(root) = openclaw_root {
+                process.arg("--openclaw-root").arg(root);
+            }
+            if let Some(root) = claude_root {
+                process.arg("--claude-root").arg(root);
             }
         }
         ProjectSkillCommand::Validate { path } => {
@@ -4843,6 +4886,9 @@ mod tests {
                     generated_by: "claw project-skill init".to_string(),
                     maturity: "draft".to_string(),
                     output_root: None,
+                    targets: Vec::new(),
+                    openclaw_root: None,
+                    claude_root: None,
                 }
             }
         );
@@ -4860,6 +4906,55 @@ mod tests {
             CliAction::ProjectSkill {
                 command: ProjectSkillCommand::Validate {
                     path: PathBuf::from(".claw/project-skills/survey-cleaning-sop"),
+                }
+            }
+        );
+    }
+
+    #[test]
+    fn parses_project_skill_compatibility_targets() {
+        let args = vec![
+            "project-skill".to_string(),
+            "init".to_string(),
+            "survey-cleaning-sop".to_string(),
+            "--title".to_string(),
+            "Survey Cleaning SOP".to_string(),
+            "--description".to_string(),
+            "Draft workflow".to_string(),
+            "--domain".to_string(),
+            "survey".to_string(),
+            "--use-when".to_string(),
+            "Use before scoring".to_string(),
+            "--source".to_string(),
+            "docs/research-method-standards.md".to_string(),
+            "--target".to_string(),
+            "openclaw".to_string(),
+            "--target".to_string(),
+            "claude-command".to_string(),
+            "--openclaw-root".to_string(),
+            ".compat/openclaw".to_string(),
+            "--claude-root".to_string(),
+            ".compat/claude".to_string(),
+        ];
+        assert_eq!(
+            parse_args(&args).expect("compat targets should parse"),
+            CliAction::ProjectSkill {
+                command: ProjectSkillCommand::Init {
+                    slug: "survey-cleaning-sop".to_string(),
+                    title: "Survey Cleaning SOP".to_string(),
+                    description: "Draft workflow".to_string(),
+                    domain: "survey".to_string(),
+                    use_when: "Use before scoring".to_string(),
+                    sources: vec!["docs/research-method-standards.md".to_string()],
+                    workflow_steps: Vec::new(),
+                    outputs: Vec::new(),
+                    limits: Vec::new(),
+                    generated_by: "claw project-skill init".to_string(),
+                    maturity: "draft".to_string(),
+                    output_root: None,
+                    targets: vec!["openclaw".to_string(), "claude-command".to_string()],
+                    openclaw_root: Some(PathBuf::from(".compat/openclaw")),
+                    claude_root: Some(PathBuf::from(".compat/claude")),
                 }
             }
         );

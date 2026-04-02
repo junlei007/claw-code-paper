@@ -21,8 +21,8 @@ cd rust
   --description "Draft workflow for survey data cleaning and coding checks." \
   --domain survey \
   --use-when "Use when a project needs a repeatable local workflow for questionnaire cleaning before scoring." \
-  --source docs/research-method-standards.md \
-  --source docs/research-method-registry.md
+  --source ../docs/research-method-standards.md \
+  --source ../docs/research-method-registry.md
 ```
 
 or the lower-level scaffold script:
@@ -63,6 +63,62 @@ cd rust
 
 ---
 
+## Compatibility export model
+
+Automatic skill synthesis should **not** assume that every ecosystem uses the same file shape.
+
+Current strategy:
+
+1. keep one **canonical** internal draft
+2. export compatibility adapters for other ecosystems
+
+### Canonical draft
+
+- `.claw/project-skills/<slug>/SKILL.md`
+- `.claw/project-skills/<slug>/skill.json`
+
+### OpenClaw-compatible export
+
+OpenClaw-style workflow skills are exported as:
+
+```text
+<openclaw-root>/skills/<slug>/SKILL.md
+```
+
+### Claude-compatible exports
+
+Claude compatibility is split by intent:
+
+- **workflow / SOP / reusable procedure** → `.claude/commands/<slug>.md`
+- **specialist / persona / method assistant** → `.claude/agents/<slug>.md`
+
+### Example
+
+```bash
+cd rust
+./target/debug/claw project-skill init survey-cleaning-sop \
+  --title "Survey Cleaning SOP" \
+  --description "Draft workflow for local survey cleaning." \
+  --domain survey \
+  --use-when "Use before scoring." \
+  --source ../docs/research-method-standards.md \
+  --target openclaw \
+  --target claude-command \
+  --target claude-agent \
+  --openclaw-root .. \
+  --claude-root ..
+```
+
+That produces:
+
+```text
+../skills/survey-cleaning-sop/SKILL.md
+../.claude/commands/survey-cleaning-sop.md
+../.claude/agents/survey-cleaning-sop.md
+```
+
+---
+
 ## Why this is a skill first
 
 Use this path when the value is still mainly in:
@@ -94,6 +150,8 @@ The generated `skill.json` follows the governance fields from the standards doc:
 - `limits`
 - `verification_status`
 - `maturity_level`
+
+Compatibility exports are adapters around this canonical metadata, not replacements for it.
 
 Current maturity options:
 
