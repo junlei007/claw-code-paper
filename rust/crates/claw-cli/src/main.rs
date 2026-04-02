@@ -44,7 +44,9 @@ use tools::GlobalToolRegistry;
 
 const DEFAULT_MODEL: &str = "claude-opus-4-6";
 fn max_tokens_for_model(model: &str) -> u32 {
-    if model.contains("opus") {
+    if model.contains("deepseek") {
+        8_192
+    } else if model.contains("opus") {
         32_000
     } else {
         64_000
