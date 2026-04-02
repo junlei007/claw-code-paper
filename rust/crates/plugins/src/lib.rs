@@ -306,6 +306,9 @@ impl PluginTool {
             .env("CLAW_PLUGIN_NAME", &self.plugin_name)
             .env("CLAW_TOOL_NAME", &self.definition.name)
             .env("CLAW_TOOL_INPUT", &input_json);
+        if let Ok(workspace_root) = std::env::current_dir() {
+            process.env("CLAW_WORKSPACE_ROOT", workspace_root.display().to_string());
+        }
         if let Some(root) = &self.root {
             process
                 .current_dir(root)
@@ -2122,7 +2125,7 @@ mod tests {
         let script_path = root.join("tools").join("echo-json.sh");
         write_file(
             &script_path,
-            "#!/bin/sh\nINPUT=$(cat)\nprintf '{\"plugin\":\"%s\",\"tool\":\"%s\",\"input\":%s}\\n' \"$CLAW_PLUGIN_ID\" \"$CLAW_TOOL_NAME\" \"$INPUT\"\n",
+            "#!/bin/sh\nINPUT=$(cat)\nprintf '{\"plugin\":\"%s\",\"tool\":\"%s\",\"workspaceRoot\":\"%s\",\"input\":%s}\\n' \"$CLAW_PLUGIN_ID\" \"$CLAW_TOOL_NAME\" \"$CLAW_WORKSPACE_ROOT\" \"$INPUT\"\n",
         );
         #[cfg(unix)]
         {
@@ -2873,6 +2876,9 @@ mod tests {
         let payload: Value = serde_json::from_str(&output).expect("valid json");
         assert_eq!(payload["plugin"], "tool-demo@external");
         assert_eq!(payload["tool"], "plugin_echo");
+        assert!(payload["workspaceRoot"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty()));
         assert_eq!(payload["input"]["message"], "hello");
 
         let _ = fs::remove_dir_all(config_home);

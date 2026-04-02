@@ -16,9 +16,10 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use api::{
-    resolve_startup_auth_source, ClawApiClient, AuthSource, ContentBlockDelta, InputContentBlock,
-    InputMessage, MessageRequest, MessageResponse, OutputContentBlock,
-    StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition, ToolResultContentBlock,
+    resolve_model_alias, resolve_startup_auth_source, AuthSource, ClawApiClient, ContentBlockDelta,
+    InputContentBlock, InputMessage, MessageRequest, MessageResponse, OpenAiCompatConfig,
+    OutputContentBlock, ProviderClient, StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition,
+    ToolResultContentBlock,
 };
 
 use commands::{
@@ -34,8 +35,9 @@ use runtime::{
     parse_oauth_callback_request_target, save_oauth_credentials, ApiClient, ApiRequest,
     AssistantEvent, CompactionConfig, ConfigLoader, ConfigSource, ContentBlock,
     ConversationMessage, ConversationRuntime, MessageRole, OAuthAuthorizationRequest, OAuthConfig,
-    OAuthTokenExchangeRequest, PermissionMode, PermissionPolicy, ProjectContext, RuntimeError,
-    Session, TokenUsage, ToolError, ToolExecutor, UsageTracker,
+    OAuthTokenExchangeRequest, PermissionMode, PermissionPolicy, ProjectContext, RuntimeConfig,
+    RuntimeError, RuntimeFeatureConfig, RuntimeProviderProfile, RuntimeProviderTransport, Session,
+    TokenUsage, ToolError, ToolExecutor, UsageTracker,
 };
 use serde_json::json;
 use tools::GlobalToolRegistry;
@@ -84,19 +86,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         CliAction::Prompt {
             prompt,
             model,
+            provider,
             output_format,
             allowed_tools,
             permission_mode,
-        } => LiveCli::new(model, true, allowed_tools, permission_mode)?
+        } => LiveCli::new(model, provider, true, allowed_tools, permission_mode)?
             .run_turn_with_output(&prompt, output_format)?,
         CliAction::Login => run_login()?,
         CliAction::Logout => run_logout()?,
         CliAction::Init => run_init()?,
         CliAction::Repl {
             model,
+            provider,
             allowed_tools,
             permission_mode,
-        } => run_repl(model, allowed_tools, permission_mode)?,
+        } => run_repl(model, provider, allowed_tools, permission_mode)?,
         CliAction::Help => print_help(),
     }
     Ok(())
@@ -123,7 +127,8 @@ enum CliAction {
     },
     Prompt {
         prompt: String,
-        model: String,
+        model: Option<String>,
+        provider: Option<String>,
         output_format: CliOutputFormat,
         allowed_tools: Option<AllowedToolSet>,
         permission_mode: PermissionMode,
@@ -132,7 +137,8 @@ enum CliAction {
     Logout,
     Init,
     Repl {
-        model: String,
+        model: Option<String>,
+        provider: Option<String>,
         allowed_tools: Option<AllowedToolSet>,
         permission_mode: PermissionMode,
     },
@@ -160,7 +166,8 @@ impl CliOutputFormat {
 
 #[allow(clippy::too_many_lines)]
 fn parse_args(args: &[String]) -> Result<CliAction, String> {
-    let mut model = DEFAULT_MODEL.to_string();
+    let mut model = None;
+    let mut provider = None;
     let mut output_format = CliOutputFormat::Text;
     let mut permission_mode = default_permission_mode();
     let mut wants_version = false;
@@ -178,11 +185,22 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 let value = args
                     .get(index + 1)
                     .ok_or_else(|| "missing value for --model".to_string())?;
-                model = resolve_model_alias(value).to_string();
+                model = Some(resolve_model_alias(value));
                 index += 2;
             }
             flag if flag.starts_with("--model=") => {
-                model = resolve_model_alias(&flag[8..]).to_string();
+                model = Some(resolve_model_alias(&flag[8..]));
+                index += 1;
+            }
+            "--provider" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --provider".to_string())?;
+                provider = Some(value.clone());
+                index += 2;
+            }
+            flag if flag.starts_with("--provider=") => {
+                provider = Some(flag[11..].to_string());
                 index += 1;
             }
             "--output-format" => {
@@ -219,7 +237,8 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 }
                 return Ok(CliAction::Prompt {
                     prompt,
-                    model: resolve_model_alias(&model).to_string(),
+                    model,
+                    provider,
                     output_format,
                     allowed_tools: normalize_allowed_tools(&allowed_tool_values)?,
                     permission_mode,
@@ -261,6 +280,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     if rest.is_empty() {
         return Ok(CliAction::Repl {
             model,
+            provider,
             allowed_tools,
             permission_mode,
         });
@@ -293,6 +313,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             Ok(CliAction::Prompt {
                 prompt,
                 model,
+                provider,
                 output_format,
                 allowed_tools,
                 permission_mode,
@@ -302,6 +323,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         _other => Ok(CliAction::Prompt {
             prompt: rest.join(" "),
             model,
+            provider,
             output_format,
             allowed_tools,
             permission_mode,
@@ -329,15 +351,6 @@ fn parse_direct_slash_cli_action(rest: &[String]) -> Result<CliAction, String> {
             }
         )),
         None => Err(format!("unknown subcommand: {}", rest[0])),
-    }
-}
-
-fn resolve_model_alias(model: &str) -> &str {
-    match model {
-        "opus" => "claude-opus-4-6",
-        "sonnet" => "claude-sonnet-4-6",
-        "haiku" => "claude-haiku-4-5-20251213",
-        _ => model,
     }
 }
 
@@ -955,11 +968,12 @@ fn run_resume_command(
 }
 
 fn run_repl(
-    model: String,
+    model: Option<String>,
+    provider: Option<String>,
     allowed_tools: Option<AllowedToolSet>,
     permission_mode: PermissionMode,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut cli = LiveCli::new(model, true, allowed_tools, permission_mode)?;
+    let mut cli = LiveCli::new(model, provider, true, allowed_tools, permission_mode)?;
     let mut editor = input::LineEditor::new("> ", slash_command_completion_candidates());
     println!("{}", cli.startup_banner());
 
@@ -1010,37 +1024,50 @@ struct ManagedSessionSummary {
 
 struct LiveCli {
     model: String,
+    provider: Option<String>,
     allowed_tools: Option<AllowedToolSet>,
     permission_mode: PermissionMode,
     system_prompt: Vec<String>,
+    runtime_config: RuntimeConfig,
+    feature_config: RuntimeFeatureConfig,
+    tool_registry: GlobalToolRegistry,
     runtime: ConversationRuntime<DefaultRuntimeClient, CliToolExecutor>,
     session: SessionHandle,
 }
 
 impl LiveCli {
     fn new(
-        model: String,
+        model: Option<String>,
+        provider: Option<String>,
         enable_tools: bool,
         allowed_tools: Option<AllowedToolSet>,
         permission_mode: PermissionMode,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let system_prompt = build_system_prompt()?;
         let session = create_managed_session_handle()?;
+        let (runtime_config, feature_config, tool_registry) = build_runtime_plugin_state()?;
+        let selection = resolve_client_selection(&runtime_config, model, provider)?;
         let runtime = build_runtime(
             Session::new(),
-            model.clone(),
+            selection.clone(),
             system_prompt.clone(),
             enable_tools,
             true,
             allowed_tools.clone(),
             permission_mode,
             None,
+            feature_config.clone(),
+            tool_registry.clone(),
         )?;
         let cli = Self {
-            model,
+            model: selection.model,
+            provider: selection.provider_id,
             allowed_tools,
             permission_mode,
             system_prompt,
+            runtime_config,
+            feature_config,
+            tool_registry,
             runtime,
             session,
         };
@@ -1053,6 +1080,10 @@ impl LiveCli {
             |_| "<unknown>".to_string(),
             |path| path.display().to_string(),
         );
+        let provider = self
+            .provider
+            .as_deref()
+            .map_or_else(|| "auto".to_string(), ToOwned::to_owned);
         format!(
             "\x1b[38;5;196m\
  ██████╗██╗      █████╗ ██╗    ██╗\n\
@@ -1062,15 +1093,52 @@ impl LiveCli {
 ╚██████╗███████╗██║  ██║╚███╔███╔╝\n\
  ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝\x1b[0m \x1b[38;5;208mCode\x1b[0m 🦞\n\n\
   \x1b[2mModel\x1b[0m            {}\n\
+  \x1b[2mProvider\x1b[0m         {}\n\
   \x1b[2mPermissions\x1b[0m      {}\n\
   \x1b[2mDirectory\x1b[0m        {}\n\
   \x1b[2mSession\x1b[0m          {}\n\n\
   Type \x1b[1m/help\x1b[0m for commands · \x1b[2mShift+Enter\x1b[0m for newline",
             self.model,
+            provider,
             self.permission_mode.as_str(),
             cwd,
             self.session.id,
         )
+    }
+
+    fn build_runtime_for_session(
+        &self,
+        session: Session,
+        model: Option<String>,
+        enable_tools: bool,
+        emit_output: bool,
+        progress: Option<InternalPromptProgressReporter>,
+    ) -> Result<
+        ConversationRuntime<DefaultRuntimeClient, CliToolExecutor>,
+        Box<dyn std::error::Error>,
+    > {
+        let selection =
+            resolve_client_selection(&self.runtime_config, model, self.provider.clone())?;
+        build_runtime(
+            session,
+            selection,
+            self.system_prompt.clone(),
+            enable_tools,
+            emit_output,
+            self.allowed_tools.clone(),
+            self.permission_mode,
+            progress,
+            self.feature_config.clone(),
+            self.tool_registry.clone(),
+        )
+    }
+
+    fn reload_runtime_state(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let (runtime_config, feature_config, tool_registry) = build_runtime_plugin_state()?;
+        self.runtime_config = runtime_config;
+        self.feature_config = feature_config;
+        self.tool_registry = tool_registry;
+        Ok(())
     }
 
     fn run_turn(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -1118,16 +1186,8 @@ impl LiveCli {
 
     fn run_prompt_json(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
         let session = self.runtime.session().clone();
-        let mut runtime = build_runtime(
-            session,
-            self.model.clone(),
-            self.system_prompt.clone(),
-            true,
-            false,
-            self.allowed_tools.clone(),
-            self.permission_mode,
-            None,
-        )?;
+        let mut runtime =
+            self.build_runtime_for_session(session, Some(self.model.clone()), true, false, None)?;
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
         let summary = runtime.run_turn(input, Some(&mut permission_prompter))?;
         self.runtime = runtime;
@@ -1287,7 +1347,7 @@ impl LiveCli {
             return Ok(false);
         };
 
-        let model = resolve_model_alias(&model).to_string();
+        let model = resolve_model_alias(&model);
 
         if model == self.model {
             println!(
@@ -1304,16 +1364,8 @@ impl LiveCli {
         let previous = self.model.clone();
         let session = self.runtime.session().clone();
         let message_count = session.messages.len();
-        self.runtime = build_runtime(
-            session,
-            model.clone(),
-            self.system_prompt.clone(),
-            true,
-            true,
-            self.allowed_tools.clone(),
-            self.permission_mode,
-            None,
-        )?;
+        self.runtime =
+            self.build_runtime_for_session(session, Some(model.clone()), true, true, None)?;
         self.model.clone_from(&model);
         println!(
             "{}",
@@ -1348,16 +1400,8 @@ impl LiveCli {
         let previous = self.permission_mode.as_str().to_string();
         let session = self.runtime.session().clone();
         self.permission_mode = permission_mode_from_label(normalized);
-        self.runtime = build_runtime(
-            session,
-            self.model.clone(),
-            self.system_prompt.clone(),
-            true,
-            true,
-            self.allowed_tools.clone(),
-            self.permission_mode,
-            None,
-        )?;
+        self.runtime =
+            self.build_runtime_for_session(session, Some(self.model.clone()), true, true, None)?;
         println!(
             "{}",
             format_permissions_switch_report(&previous, normalized)
@@ -1374,14 +1418,11 @@ impl LiveCli {
         }
 
         self.session = create_managed_session_handle()?;
-        self.runtime = build_runtime(
+        self.runtime = self.build_runtime_for_session(
             Session::new(),
-            self.model.clone(),
-            self.system_prompt.clone(),
+            Some(self.model.clone()),
             true,
             true,
-            self.allowed_tools.clone(),
-            self.permission_mode,
             None,
         )?;
         println!(
@@ -1410,16 +1451,8 @@ impl LiveCli {
         let handle = resolve_session_reference(&session_ref)?;
         let session = Session::load_from_path(&handle.path)?;
         let message_count = session.messages.len();
-        self.runtime = build_runtime(
-            session,
-            self.model.clone(),
-            self.system_prompt.clone(),
-            true,
-            true,
-            self.allowed_tools.clone(),
-            self.permission_mode,
-            None,
-        )?;
+        self.runtime =
+            self.build_runtime_for_session(session, Some(self.model.clone()), true, true, None)?;
         self.session = handle;
         println!(
             "{}",
@@ -1495,14 +1528,11 @@ impl LiveCli {
                 let handle = resolve_session_reference(target)?;
                 let session = Session::load_from_path(&handle.path)?;
                 let message_count = session.messages.len();
-                self.runtime = build_runtime(
+                self.runtime = self.build_runtime_for_session(
                     session,
-                    self.model.clone(),
-                    self.system_prompt.clone(),
+                    Some(self.model.clone()),
                     true,
                     true,
-                    self.allowed_tools.clone(),
-                    self.permission_mode,
                     None,
                 )?;
                 self.session = handle;
@@ -1539,14 +1569,12 @@ impl LiveCli {
     }
 
     fn reload_runtime_features(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.runtime = build_runtime(
+        self.reload_runtime_state()?;
+        self.runtime = self.build_runtime_for_session(
             self.runtime.session().clone(),
-            self.model.clone(),
-            self.system_prompt.clone(),
+            Some(self.model.clone()),
             true,
             true,
-            self.allowed_tools.clone(),
-            self.permission_mode,
             None,
         )?;
         self.persist_session()
@@ -1557,14 +1585,11 @@ impl LiveCli {
         let removed = result.removed_message_count;
         let kept = result.compacted_session.messages.len();
         let skipped = removed == 0;
-        self.runtime = build_runtime(
+        self.runtime = self.build_runtime_for_session(
             result.compacted_session,
-            self.model.clone(),
-            self.system_prompt.clone(),
+            Some(self.model.clone()),
             true,
             true,
-            self.allowed_tools.clone(),
-            self.permission_mode,
             None,
         )?;
         self.persist_session()?;
@@ -1579,14 +1604,11 @@ impl LiveCli {
         progress: Option<InternalPromptProgressReporter>,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let session = self.runtime.session().clone();
-        let mut runtime = build_runtime(
+        let mut runtime = self.build_runtime_for_session(
             session,
-            self.model.clone(),
-            self.system_prompt.clone(),
+            Some(self.model.clone()),
             enable_tools,
             false,
-            self.allowed_tools.clone(),
-            self.permission_mode,
             progress,
         )?;
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
@@ -1990,12 +2012,14 @@ fn render_config_report(section: Option<&str>) -> Result<String, Box<dyn std::er
             "env" => runtime_config.get("env"),
             "hooks" => runtime_config.get("hooks"),
             "model" => runtime_config.get("model"),
+            "providers" => runtime_config.get("providers"),
+            "research" => runtime_config.get("research"),
             "plugins" => runtime_config
                 .get("plugins")
                 .or_else(|| runtime_config.get("enabledPlugins")),
             other => {
                 lines.push(format!(
-                    "  Unsupported config section '{other}'. Use env, hooks, model, or plugins."
+                    "  Unsupported config section '{other}'. Use env, hooks, model, providers, research, or plugins."
                 ));
                 return Ok(lines.join(
                     "
@@ -2037,8 +2061,7 @@ fn render_memory_report() -> Result<String, Box<dyn std::error::Error>> {
     if project_context.instruction_files.is_empty() {
         lines.push("Discovered files".to_string());
         lines.push(
-            "  No CLAW instruction files discovered in the current directory ancestry."
-                .to_string(),
+            "  No CLAW instruction files discovered in the current directory ancestry.".to_string(),
         );
     } else {
         lines.push("Discovered files".to_string());
@@ -2406,13 +2429,17 @@ fn build_system_prompt() -> Result<Vec<String>, Box<dyn std::error::Error>> {
 }
 
 fn build_runtime_plugin_state(
-) -> Result<(runtime::RuntimeFeatureConfig, GlobalToolRegistry), Box<dyn std::error::Error>> {
+) -> Result<(RuntimeConfig, RuntimeFeatureConfig, GlobalToolRegistry), Box<dyn std::error::Error>> {
     let cwd = env::current_dir()?;
     let loader = ConfigLoader::default_for(&cwd);
     let runtime_config = loader.load()?;
     let plugin_manager = build_plugin_manager(&cwd, &loader, &runtime_config);
     let tool_registry = GlobalToolRegistry::with_plugin_tools(plugin_manager.aggregated_tools()?)?;
-    Ok((runtime_config.feature_config().clone(), tool_registry))
+    Ok((
+        runtime_config.clone(),
+        runtime_config.feature_config().clone(),
+        tool_registry,
+    ))
 }
 
 fn build_plugin_manager(
@@ -2449,6 +2476,51 @@ fn resolve_plugin_path(cwd: &Path, config_home: &Path, value: &str) -> PathBuf {
     } else {
         config_home.join(path)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResolvedClientSelection {
+    model: String,
+    provider_id: Option<String>,
+    provider_profile: Option<RuntimeProviderProfile>,
+}
+
+fn resolve_client_selection(
+    runtime_config: &RuntimeConfig,
+    model: Option<String>,
+    provider: Option<String>,
+) -> Result<ResolvedClientSelection, Box<dyn std::error::Error>> {
+    let provider_id = provider.or_else(|| {
+        runtime_config
+            .providers()
+            .default_profile()
+            .map(ToOwned::to_owned)
+    });
+    let provider_profile = match provider_id.as_deref() {
+        Some(provider_id) => Some(
+            runtime_config
+                .providers()
+                .profile(provider_id)
+                .ok_or_else(|| format!("unknown provider profile: {provider_id}"))?
+                .clone(),
+        ),
+        None => None,
+    };
+
+    let model = model
+        .or_else(|| {
+            provider_profile
+                .as_ref()
+                .and_then(|profile| profile.default_model().map(ToOwned::to_owned))
+        })
+        .or_else(|| runtime_config.model().map(ToOwned::to_owned))
+        .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+
+    Ok(ResolvedClientSelection {
+        model: resolve_model_alias(&model),
+        provider_id,
+        provider_profile,
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2783,19 +2855,21 @@ fn describe_tool_progress(name: &str, input: &str) -> String {
 #[allow(clippy::too_many_arguments)]
 fn build_runtime(
     session: Session,
-    model: String,
+    selection: ResolvedClientSelection,
     system_prompt: Vec<String>,
     enable_tools: bool,
     emit_output: bool,
     allowed_tools: Option<AllowedToolSet>,
     permission_mode: PermissionMode,
     progress_reporter: Option<InternalPromptProgressReporter>,
-) -> Result<ConversationRuntime<DefaultRuntimeClient, CliToolExecutor>, Box<dyn std::error::Error>> {
-    let (feature_config, tool_registry) = build_runtime_plugin_state()?;
+    feature_config: RuntimeFeatureConfig,
+    tool_registry: GlobalToolRegistry,
+) -> Result<ConversationRuntime<DefaultRuntimeClient, CliToolExecutor>, Box<dyn std::error::Error>>
+{
     Ok(ConversationRuntime::new_with_features(
         session,
         DefaultRuntimeClient::new(
-            model,
+            selection,
             enable_tools,
             emit_output,
             allowed_tools.clone(),
@@ -2857,7 +2931,7 @@ impl runtime::PermissionPrompter for CliPermissionPrompter {
 
 struct DefaultRuntimeClient {
     runtime: tokio::runtime::Runtime,
-    client: ClawApiClient,
+    client: ProviderClient,
     model: String,
     enable_tools: bool,
     emit_output: bool,
@@ -2868,17 +2942,26 @@ struct DefaultRuntimeClient {
 
 impl DefaultRuntimeClient {
     fn new(
-        model: String,
+        selection: ResolvedClientSelection,
         enable_tools: bool,
         emit_output: bool,
         allowed_tools: Option<AllowedToolSet>,
         tool_registry: GlobalToolRegistry,
         progress_reporter: Option<InternalPromptProgressReporter>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        let model = selection.model.clone();
+        let client = match selection.provider_profile {
+            Some(profile) => {
+                build_profile_provider_client(selection.provider_id.as_deref(), &profile)?
+            }
+            None => ProviderClient::from_model_with_default_auth(
+                &model,
+                Some(resolve_cli_auth_source()?),
+            )?,
+        };
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
-            client: ClawApiClient::from_auth(resolve_cli_auth_source()?)
-                .with_base_url(api::read_base_url()),
+            client,
             model,
             enable_tools,
             emit_output,
@@ -2886,6 +2969,36 @@ impl DefaultRuntimeClient {
             tool_registry,
             progress_reporter,
         })
+    }
+}
+
+fn build_profile_provider_client(
+    provider_id: Option<&str>,
+    profile: &RuntimeProviderProfile,
+) -> Result<ProviderClient, Box<dyn std::error::Error>> {
+    match profile.transport() {
+        RuntimeProviderTransport::OpenAiCompat => {
+            let config = OpenAiCompatConfig::custom(
+                profile.provider_name(),
+                profile.api_key_env(),
+                profile.base_url_env().map_or_else(
+                    || {
+                        provider_id.map_or_else(
+                            || "OPENAI_COMPAT_BASE_URL".to_string(),
+                            |provider_id| {
+                                format!(
+                                    "{}_BASE_URL",
+                                    provider_id.to_ascii_uppercase().replace('-', "_")
+                                )
+                            },
+                        )
+                    },
+                    ToOwned::to_owned,
+                ),
+                profile.base_url(),
+            );
+            Ok(ProviderClient::from_openai_compat_config(config)?)
+        }
     }
 }
 
@@ -3717,17 +3830,17 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "Usage:")?;
     writeln!(
         out,
-        "  claw [--model MODEL] [--allowedTools TOOL[,TOOL...]]"
+        "  claw [--model MODEL] [--provider PROFILE] [--allowedTools TOOL[,TOOL...]]"
     )?;
     writeln!(out, "      Start the interactive REPL")?;
     writeln!(
         out,
-        "  claw [--model MODEL] [--output-format text|json] prompt TEXT"
+        "  claw [--model MODEL] [--provider PROFILE] [--output-format text|json] prompt TEXT"
     )?;
     writeln!(out, "      Send one prompt and exit")?;
     writeln!(
         out,
-        "  claw [--model MODEL] [--output-format text|json] TEXT"
+        "  claw [--model MODEL] [--provider PROFILE] [--output-format text|json] TEXT"
     )?;
     writeln!(out, "      Shorthand non-interactive prompt mode")?;
     writeln!(
@@ -3751,6 +3864,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(
         out,
         "  --model MODEL              Override the active model"
+    )?;
+    writeln!(
+        out,
+        "  --provider PROFILE         Select a configured provider profile"
     )?;
     writeln!(
         out,
@@ -3816,17 +3933,30 @@ mod tests {
         format_status_report, format_tool_call_start, format_tool_result,
         normalize_permission_mode, parse_args, parse_git_status_metadata, permission_policy,
         print_help_to, push_output_block, render_config_report, render_memory_report,
-        render_repl_help, resolve_model_alias, response_to_events, resume_supported_slash_commands,
-        status_context, CliAction, CliOutputFormat, InternalPromptProgressEvent,
-        InternalPromptProgressState, SlashCommand, StatusUsage, DEFAULT_MODEL,
+        render_repl_help, resolve_client_selection, resolve_model_alias, response_to_events,
+        resume_supported_slash_commands, status_context, CliAction, CliOutputFormat,
+        InternalPromptProgressEvent, InternalPromptProgressState, SlashCommand, StatusUsage,
     };
     use api::{MessageResponse, OutputContentBlock, Usage};
     use plugins::{PluginTool, PluginToolDefinition, PluginToolPermission};
-    use runtime::{AssistantEvent, ContentBlock, ConversationMessage, MessageRole, PermissionMode};
+    use runtime::{
+        AssistantEvent, ConfigLoader, ContentBlock, ConversationMessage, MessageRole,
+        PermissionMode,
+    };
     use serde_json::json;
+    use std::fs;
     use std::path::PathBuf;
     use std::time::Duration;
+    use std::time::{SystemTime, UNIX_EPOCH};
     use tools::GlobalToolRegistry;
+
+    fn temp_dir() -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time should be after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("claw-cli-tests-{nanos}"))
+    }
 
     fn registry_with_plugin_tool() -> GlobalToolRegistry {
         GlobalToolRegistry::with_plugin_tools(vec![PluginTool::new(
@@ -3857,7 +3987,8 @@ mod tests {
         assert_eq!(
             parse_args(&[]).expect("args should parse"),
             CliAction::Repl {
-                model: DEFAULT_MODEL.to_string(),
+                model: None,
+                provider: None,
                 allowed_tools: None,
                 permission_mode: PermissionMode::DangerFullAccess,
             }
@@ -3875,7 +4006,8 @@ mod tests {
             parse_args(&args).expect("args should parse"),
             CliAction::Prompt {
                 prompt: "hello world".to_string(),
-                model: DEFAULT_MODEL.to_string(),
+                model: None,
+                provider: None,
                 output_format: CliOutputFormat::Text,
                 allowed_tools: None,
                 permission_mode: PermissionMode::DangerFullAccess,
@@ -3896,7 +4028,8 @@ mod tests {
             parse_args(&args).expect("args should parse"),
             CliAction::Prompt {
                 prompt: "explain this".to_string(),
-                model: "custom-opus".to_string(),
+                model: Some("custom-opus".to_string()),
+                provider: None,
                 output_format: CliOutputFormat::Json,
                 allowed_tools: None,
                 permission_mode: PermissionMode::DangerFullAccess,
@@ -3916,12 +4049,123 @@ mod tests {
             parse_args(&args).expect("args should parse"),
             CliAction::Prompt {
                 prompt: "explain this".to_string(),
-                model: "claude-opus-4-6".to_string(),
+                model: Some("claude-opus-4-6".to_string()),
+                provider: None,
                 output_format: CliOutputFormat::Text,
                 allowed_tools: None,
                 permission_mode: PermissionMode::DangerFullAccess,
             }
         );
+    }
+
+    #[test]
+    fn parses_provider_flag_in_args() {
+        let args = vec![
+            "--provider".to_string(),
+            "deepseek".to_string(),
+            "prompt".to_string(),
+            "hello".to_string(),
+        ];
+        assert_eq!(
+            parse_args(&args).expect("args should parse"),
+            CliAction::Prompt {
+                prompt: "hello".to_string(),
+                model: None,
+                provider: Some("deepseek".to_string()),
+                output_format: CliOutputFormat::Text,
+                allowed_tools: None,
+                permission_mode: PermissionMode::DangerFullAccess,
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_client_selection_prefers_default_provider_profile_model() {
+        let root = temp_dir();
+        let cwd = root.join("project");
+        let home = root.join("home").join(".claw");
+        fs::create_dir_all(cwd.join(".claw")).expect("project config dir");
+        fs::create_dir_all(&home).expect("home config dir");
+        fs::write(
+            home.join("settings.json"),
+            r#"{
+              "model": "opus",
+              "providers": {
+                "default": "deepseek",
+                "profiles": {
+                  "deepseek": {
+                    "type": "openai-compat",
+                    "providerName": "DeepSeek",
+                    "apiKeyEnv": "DEEPSEEK_API_KEY",
+                    "baseUrl": "https://api.deepseek.com/v1",
+                    "defaultModel": "deepseek-chat"
+                  }
+                }
+              }
+            }"#,
+        )
+        .expect("write settings");
+
+        let config = ConfigLoader::new(&cwd, &home)
+            .load()
+            .expect("config should load");
+        let selection =
+            resolve_client_selection(&config, None, None).expect("selection should succeed");
+        assert_eq!(selection.provider_id.as_deref(), Some("deepseek"));
+        assert_eq!(selection.model, "deepseek-chat");
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn resolve_client_selection_prefers_explicit_model_over_provider_default() {
+        let root = temp_dir();
+        let cwd = root.join("project");
+        let home = root.join("home").join(".claw");
+        fs::create_dir_all(cwd.join(".claw")).expect("project config dir");
+        fs::create_dir_all(&home).expect("home config dir");
+        fs::write(
+            home.join("settings.json"),
+            r#"{
+              "providers": {
+                "default": "deepseek",
+                "profiles": {
+                  "deepseek": {
+                    "type": "openai-compat",
+                    "providerName": "DeepSeek",
+                    "apiKeyEnv": "DEEPSEEK_API_KEY",
+                    "baseUrl": "https://api.deepseek.com/v1",
+                    "defaultModel": "deepseek-chat"
+                  }
+                }
+              }
+            }"#,
+        )
+        .expect("write settings");
+
+        let config = ConfigLoader::new(&cwd, &home)
+            .load()
+            .expect("config should load");
+        let selection = resolve_client_selection(
+            &config,
+            Some("deepseek-reasoner".to_string()),
+            Some("deepseek".to_string()),
+        )
+        .expect("selection should succeed");
+        assert_eq!(selection.provider_id.as_deref(), Some("deepseek"));
+        assert_eq!(selection.model, "deepseek-reasoner");
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn resolve_client_selection_rejects_unknown_provider_profile() {
+        let config = runtime::RuntimeConfig::empty();
+        let error = resolve_client_selection(&config, None, Some("missing".to_string()))
+            .expect_err("selection should fail");
+        assert!(error
+            .to_string()
+            .contains("unknown provider profile: missing"));
     }
 
     #[test]
@@ -3950,7 +4194,8 @@ mod tests {
         assert_eq!(
             parse_args(&args).expect("args should parse"),
             CliAction::Repl {
-                model: DEFAULT_MODEL.to_string(),
+                model: None,
+                provider: None,
                 allowed_tools: None,
                 permission_mode: PermissionMode::ReadOnly,
             }
@@ -3967,7 +4212,8 @@ mod tests {
         assert_eq!(
             parse_args(&args).expect("args should parse"),
             CliAction::Repl {
-                model: DEFAULT_MODEL.to_string(),
+                model: None,
+                provider: None,
                 allowed_tools: Some(
                     ["glob_search", "read_file", "write_file"]
                         .into_iter()
@@ -4145,7 +4391,7 @@ mod tests {
         assert!(help.contains("/clear [--confirm]"));
         assert!(help.contains("/cost"));
         assert!(help.contains("/resume <session-path>"));
-        assert!(help.contains("/config [env|hooks|model|plugins]"));
+        assert!(help.contains("/config [env|hooks|model|providers|research|plugins]"));
         assert!(help.contains("/memory"));
         assert!(help.contains("/init"));
         assert!(help.contains("/diff"));
@@ -4314,6 +4560,12 @@ mod tests {
         let plugins_report =
             render_config_report(Some("plugins")).expect("plugins config report should render");
         assert!(plugins_report.contains("Merged section: plugins"));
+        let providers_report =
+            render_config_report(Some("providers")).expect("providers config report should render");
+        assert!(providers_report.contains("Merged section: providers"));
+        let research_report =
+            render_config_report(Some("research")).expect("research config report should render");
+        assert!(research_report.contains("Merged section: research"));
     }
 
     #[test]

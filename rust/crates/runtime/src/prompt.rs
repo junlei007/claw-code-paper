@@ -150,6 +150,9 @@ impl SystemPromptBuilder {
         }
         if let Some(config) = &self.config {
             sections.push(render_config_section(config));
+            if config.research().enabled() {
+                sections.push(render_research_section(config));
+            }
         }
         sections.extend(self.append_sections.iter().cloned());
         sections
@@ -435,6 +438,37 @@ fn render_config_section(config: &RuntimeConfig) -> String {
     ));
     lines.push(String::new());
     lines.push(config.as_json().render());
+    lines.join("\n")
+}
+
+fn render_research_section(config: &RuntimeConfig) -> String {
+    let research = config.research();
+    let profile = research.profile().unwrap_or("general");
+    let mut lines = vec!["# Research mode".to_string()];
+    lines.extend(prepend_bullets(vec![
+        format!("Research profile: {profile}"),
+        "Default to structured, reproducible analysis workflows.".to_string(),
+        "Prefer local data processing and local statistical execution over sending raw datasets to external models.".to_string(),
+        "Separate statistical output, interpretation, and researcher judgment clearly.".to_string(),
+        "When working with questionnaire/survey datasets, check coding, reverse scoring, missing data, reliability, validity, and factor structure before drafting conclusions.".to_string(),
+    ]));
+
+    if profile == "survey" {
+        lines.push(String::new());
+        lines.push("## Survey analysis operating rules".to_string());
+        lines.extend(prepend_bullets(vec![
+            "Ask for or infer scale metadata carefully: item groups, reverse-coded items, response scales, and missing-value conventions.".to_string(),
+            "Use Python-style tools for ingestion/cleaning/visualization and R-style tools for psychometrics/CFA when available.".to_string(),
+            "Report reliability metrics, validity pre-checks, model-fit indices, and any convergence or identification warnings explicitly.".to_string(),
+            "Do not overstate findings: distinguish what the statistics show from what still needs domain interpretation.".to_string(),
+        ]));
+    }
+
+    if let Some(artifact_dir) = research.artifact_dir() {
+        lines.push(String::new());
+        lines.push(format!("Artifacts directory: {artifact_dir}"));
+    }
+
     lines.join("\n")
 }
 
@@ -737,6 +771,41 @@ mod tests {
         assert!(prompt.contains("Project rules"));
         assert!(prompt.contains("permissionMode"));
         assert!(prompt.contains(SYSTEM_PROMPT_DYNAMIC_BOUNDARY));
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn renders_research_section_when_enabled() {
+        let root = temp_dir();
+        fs::create_dir_all(root.join(".claw")).expect("claw dir");
+        fs::write(
+            root.join(".claw").join("settings.json"),
+            r#"{
+              "research": {
+                "enabled": true,
+                "profile": "survey",
+                "artifactDir": ".claw/artifacts"
+              }
+            }"#,
+        )
+        .expect("write settings");
+
+        let project_context =
+            ProjectContext::discover(&root, "2026-03-31").expect("context should load");
+        let config = ConfigLoader::new(&root, root.join("missing-home"))
+            .load()
+            .expect("config should load");
+        let prompt = SystemPromptBuilder::new()
+            .with_os("linux", "6.8")
+            .with_project_context(project_context)
+            .with_runtime_config(config)
+            .render();
+
+        assert!(prompt.contains("# Research mode"));
+        assert!(prompt.contains("Research profile: survey"));
+        assert!(prompt.contains("Survey analysis operating rules"));
+        assert!(prompt.contains("Artifacts directory: .claw/artifacts"));
 
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }

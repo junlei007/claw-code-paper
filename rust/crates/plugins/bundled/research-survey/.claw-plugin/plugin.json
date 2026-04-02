@@ -1,0 +1,217 @@
+{
+  "name": "research-survey",
+  "version": "0.1.0",
+  "description": "Bundled survey research plugin scaffold for questionnaire ingestion, psychometrics, CFA, and report workflows.",
+  "defaultEnabled": false,
+  "tools": [
+    {
+      "name": "survey_metadata",
+      "description": "Inspect a questionnaire dataset and return a structured metadata summary for downstream reliability, validity, and CFA workflows.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "datasetPath": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "sheetName": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "delimiter": {
+            "type": "string"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "naValues": {
+            "type": "array"
+          },
+          "layout": {
+            "type": "string"
+          },
+          "scaleDefinitions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "reverseItems": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "additionalProperties": true
+            }
+          },
+          "reverseItems": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "datasetPath"
+        ],
+        "additionalProperties": true
+      },
+      "command": "python3",
+      "args": [
+        "./tools/survey_tools.py"
+      ],
+      "requiredPermission": "read-only"
+    },
+    {
+      "name": "survey_psychometrics",
+      "description": "Run reliability, validity pre-checks, and optional CFA for questionnaire data using the bundled R backend.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "datasetPath": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "delimiter": {
+            "type": "string"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "naValues": {
+            "type": "array"
+          },
+          "layout": {
+            "type": "string"
+          },
+          "widths": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "columnWidths": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "columnNames": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sheetName": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "scaleDefinitions": {
+            "type": "array"
+          },
+          "reverseItems": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "responseScale": {
+            "type": "object",
+            "properties": {
+              "min": {
+                "type": "number"
+              },
+              "max": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false
+          },
+          "analysisId": {
+            "type": "string"
+          },
+          "cfaModel": {
+            "type": "string"
+          },
+          "estimator": {
+            "type": "string"
+          },
+          "missingHandling": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "datasetPath"
+        ],
+        "additionalProperties": true
+      },
+      "command": "Rscript",
+      "args": [
+        "./tools/survey_psychometrics.R"
+      ],
+      "requiredPermission": "read-only"
+    },
+    {
+      "name": "survey_report",
+      "description": "Render a markdown survey-analysis report artifact from structured results and the bundled template.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "datasetPath": {
+            "type": "string"
+          },
+          "outputPath": {
+            "type": "string"
+          },
+          "datasetSummary": {
+            "type": "object"
+          },
+          "results": {
+            "type": "object"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": true
+      },
+      "command": "python3",
+      "args": [
+        "./tools/survey_tools.py"
+      ],
+      "requiredPermission": "workspace-write"
+    }
+  ]
+}

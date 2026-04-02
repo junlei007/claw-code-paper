@@ -1,7 +1,9 @@
 use std::ffi::OsString;
 use std::sync::{Mutex, OnceLock};
 
-use api::{read_xai_base_url, ApiError, AuthSource, ProviderClient, ProviderKind};
+use api::{
+    read_xai_base_url, ApiError, AuthSource, OpenAiCompatConfig, ProviderClient, ProviderKind,
+};
 
 #[test]
 fn provider_client_routes_grok_aliases_through_xai() {
@@ -53,11 +55,28 @@ fn read_xai_base_url_prefers_env_override() {
     assert_eq!(read_xai_base_url(), "https://example.xai.test/v1");
 }
 
+#[test]
+fn provider_client_builds_custom_openai_compat_profile() {
+    let _lock = env_lock();
+    let _api_key = EnvVarGuard::set("DEEPSEEK_API_KEY", Some("deepseek-test-key"));
+    let _base_url = EnvVarGuard::set("DEEPSEEK_BASE_URL", Some("https://api.deepseek.test/v1"));
+
+    let client = ProviderClient::from_openai_compat_config(OpenAiCompatConfig::custom(
+        "DeepSeek",
+        "DEEPSEEK_API_KEY",
+        "DEEPSEEK_BASE_URL",
+        "https://api.deepseek.com/v1",
+    ))
+    .expect("custom openai-compatible provider should construct");
+
+    assert_eq!(client.provider_kind(), ProviderKind::OpenAi);
+}
+
 fn env_lock() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 struct EnvVarGuard {

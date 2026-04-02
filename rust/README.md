@@ -35,6 +35,35 @@ Or authenticate via OAuth:
 claw login
 ```
 
+OpenAI-compatible provider profiles are also supported through config, including non-Claude backends such as DeepSeek:
+
+```json
+{
+  "providers": {
+    "default": "deepseek",
+    "profiles": {
+      "deepseek": {
+        "type": "openai-compat",
+        "providerName": "DeepSeek",
+        "apiKeyEnv": "DEEPSEEK_API_KEY",
+        "baseUrl": "https://api.deepseek.com/v1",
+        "defaultModel": "deepseek-chat"
+      }
+    }
+  },
+  "research": {
+    "enabled": true,
+    "profile": "survey",
+    "artifactDir": ".claw/artifacts"
+  },
+  "plugins": {
+    "enabled": {
+      "research-survey@bundled": true
+    }
+  }
+}
+```
+
 ## Features
 
 | Feature | Status |
@@ -59,7 +88,7 @@ claw login
 | Model aliases (opus/sonnet/haiku) | ✅ |
 | Slash commands (/status, /compact, /clear, etc.) | ✅ |
 | Hooks (PreToolUse/PostToolUse) | 🔧 Config only |
-| Plugin system | 📋 Planned |
+| Plugin system | ✅ Bundled + external plugin loading |
 | Skills registry | 📋 Planned |
 
 ## Model Aliases

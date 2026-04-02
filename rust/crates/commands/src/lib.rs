@@ -106,7 +106,7 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         name: "config",
         aliases: &[],
         summary: "Inspect Claw config files or merged sections",
-        argument_hint: Some("[env|hooks|model|plugins]"),
+        argument_hint: Some("[env|hooks|model|providers|research|plugins]"),
         resume_supported: true,
     },
     SlashCommandSpec {
@@ -1429,7 +1429,7 @@ mod tests {
         assert!(help.contains("/clear [--confirm]"));
         assert!(help.contains("/cost"));
         assert!(help.contains("/resume <session-path>"));
-        assert!(help.contains("/config [env|hooks|model|plugins]"));
+        assert!(help.contains("/config [env|hooks|model|providers|research|plugins]"));
         assert!(help.contains("/memory"));
         assert!(help.contains("/init"));
         assert!(help.contains("/diff"));

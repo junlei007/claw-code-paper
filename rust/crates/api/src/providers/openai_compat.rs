@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, VecDeque};
+use std::net::IpAddr;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -22,12 +23,33 @@ const DEFAULT_INITIAL_BACKOFF: Duration = Duration::from_millis(200);
 const DEFAULT_MAX_BACKOFF: Duration = Duration::from_secs(2);
 const DEFAULT_MAX_RETRIES: u32 = 2;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+fn build_http_client(base_url: &str) -> reqwest::Client {
+    if should_bypass_proxy(base_url) {
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    } else {
+        reqwest::Client::new()
+    }
+}
+
+fn should_bypass_proxy(base_url: &str) -> bool {
+    reqwest::Url::parse(base_url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .is_some_and(|host| {
+            host.eq_ignore_ascii_case("localhost")
+                || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
+        })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OpenAiCompatConfig {
-    pub provider_name: &'static str,
-    pub api_key_env: &'static str,
-    pub base_url_env: &'static str,
-    pub default_base_url: &'static str,
+    pub provider_name: String,
+    pub api_key_env: String,
+    pub base_url_env: String,
+    pub default_base_url: String,
 }
 
 const XAI_ENV_VARS: &[&str] = &["XAI_API_KEY"];
@@ -35,27 +57,43 @@ const OPENAI_ENV_VARS: &[&str] = &["OPENAI_API_KEY"];
 
 impl OpenAiCompatConfig {
     #[must_use]
-    pub const fn xai() -> Self {
+    pub fn xai() -> Self {
         Self {
-            provider_name: "xAI",
-            api_key_env: "XAI_API_KEY",
-            base_url_env: "XAI_BASE_URL",
-            default_base_url: DEFAULT_XAI_BASE_URL,
+            provider_name: "xAI".to_string(),
+            api_key_env: "XAI_API_KEY".to_string(),
+            base_url_env: "XAI_BASE_URL".to_string(),
+            default_base_url: DEFAULT_XAI_BASE_URL.to_string(),
         }
     }
 
     #[must_use]
-    pub const fn openai() -> Self {
+    pub fn openai() -> Self {
         Self {
-            provider_name: "OpenAI",
-            api_key_env: "OPENAI_API_KEY",
-            base_url_env: "OPENAI_BASE_URL",
-            default_base_url: DEFAULT_OPENAI_BASE_URL,
+            provider_name: "OpenAI".to_string(),
+            api_key_env: "OPENAI_API_KEY".to_string(),
+            base_url_env: "OPENAI_BASE_URL".to_string(),
+            default_base_url: DEFAULT_OPENAI_BASE_URL.to_string(),
         }
     }
+
     #[must_use]
-    pub fn credential_env_vars(self) -> &'static [&'static str] {
-        match self.provider_name {
+    pub fn custom(
+        provider_name: impl Into<String>,
+        api_key_env: impl Into<String>,
+        base_url_env: impl Into<String>,
+        default_base_url: impl Into<String>,
+    ) -> Self {
+        Self {
+            provider_name: provider_name.into(),
+            api_key_env: api_key_env.into(),
+            base_url_env: base_url_env.into(),
+            default_base_url: default_base_url.into(),
+        }
+    }
+
+    #[must_use]
+    pub fn credential_env_vars(&self) -> &'static [&'static str] {
+        match self.provider_name.as_str() {
             "xAI" => XAI_ENV_VARS,
             "OpenAI" => OPENAI_ENV_VARS,
             _ => &[],
@@ -75,11 +113,13 @@ pub struct OpenAiCompatClient {
 
 impl OpenAiCompatClient {
     #[must_use]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn new(api_key: impl Into<String>, config: OpenAiCompatConfig) -> Self {
+        let base_url = read_base_url(&config);
         Self {
-            http: reqwest::Client::new(),
+            http: build_http_client(&base_url),
             api_key: api_key.into(),
-            base_url: read_base_url(config),
+            base_url,
             max_retries: DEFAULT_MAX_RETRIES,
             initial_backoff: DEFAULT_INITIAL_BACKOFF,
             max_backoff: DEFAULT_MAX_BACKOFF,
@@ -87,18 +127,24 @@ impl OpenAiCompatClient {
     }
 
     pub fn from_env(config: OpenAiCompatConfig) -> Result<Self, ApiError> {
-        let Some(api_key) = read_env_non_empty(config.api_key_env)? else {
-            return Err(ApiError::missing_credentials(
-                config.provider_name,
-                config.credential_env_vars(),
-            ));
+        let Some(api_key) = read_env_non_empty(&config.api_key_env)? else {
+            return Err(match config.provider_name.as_str() {
+                "xAI" => ApiError::missing_credentials("xAI", XAI_ENV_VARS),
+                "OpenAI" => ApiError::missing_credentials("OpenAI", OPENAI_ENV_VARS),
+                _ => ApiError::Auth(format!(
+                    "missing {} credentials; export {} before calling the {} API",
+                    config.provider_name, config.api_key_env, config.provider_name
+                )),
+            });
         };
         Ok(Self::new(api_key, config))
     }
 
     #[must_use]
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
-        self.base_url = base_url.into();
+        let base_url = base_url.into();
+        self.http = build_http_client(&base_url);
+        self.base_url = base_url;
         self
     }
 
@@ -297,6 +343,7 @@ impl OpenAiSseParser {
 }
 
 #[derive(Debug)]
+#[allow(clippy::struct_excessive_bools)]
 struct StreamState {
     model: String,
     message_started: bool,
@@ -497,6 +544,7 @@ impl ToolCallState {
         self.openai_index + 1
     }
 
+    #[allow(clippy::unnecessary_wraps)]
     fn start_event(&self) -> Result<Option<ContentBlockStartEvent>, ApiError> {
         let Some(name) = self.name.clone() else {
             return Ok(None);
@@ -862,8 +910,8 @@ pub fn has_api_key(key: &str) -> bool {
 }
 
 #[must_use]
-pub fn read_base_url(config: OpenAiCompatConfig) -> String {
-    std::env::var(config.base_url_env).unwrap_or_else(|_| config.default_base_url.to_string())
+pub fn read_base_url(config: &OpenAiCompatConfig) -> String {
+    std::env::var(&config.base_url_env).unwrap_or_else(|_| config.default_base_url.clone())
 }
 
 fn chat_completions_endpoint(base_url: &str) -> String {

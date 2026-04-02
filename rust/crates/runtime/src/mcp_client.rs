@@ -97,12 +97,10 @@ impl McpClientTransport {
             McpServerConfig::Sdk(config) => Self::Sdk(McpSdkTransport {
                 name: config.name.clone(),
             }),
-            McpServerConfig::ManagedProxy(config) => {
-                Self::ManagedProxy(McpManagedProxyTransport {
-                    url: config.url.clone(),
-                    id: config.id.clone(),
-                })
-            }
+            McpServerConfig::ManagedProxy(config) => Self::ManagedProxy(McpManagedProxyTransport {
+                url: config.url.clone(),
+                id: config.id.clone(),
+            }),
         }
     }
 }

@@ -196,6 +196,7 @@ async fn stream_message_normalizes_text_and_multiple_tool_calls() {
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn provider_client_dispatches_xai_requests_from_env() {
     let _lock = env_lock();
     let _api_key = ScopedEnvVar::set("XAI_API_KEY", "xai-test-key");
@@ -389,7 +390,7 @@ fn env_lock() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| StdMutex::new(()))
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 struct ScopedEnvVar {

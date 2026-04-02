@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::net::IpAddr;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use runtime::{
@@ -20,6 +21,27 @@ const ALT_REQUEST_ID_HEADER: &str = "x-request-id";
 const DEFAULT_INITIAL_BACKOFF: Duration = Duration::from_millis(200);
 const DEFAULT_MAX_BACKOFF: Duration = Duration::from_secs(2);
 const DEFAULT_MAX_RETRIES: u32 = 2;
+
+fn build_http_client(base_url: &str) -> reqwest::Client {
+    if should_bypass_proxy(base_url) {
+        reqwest::Client::builder()
+            .no_proxy()
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new())
+    } else {
+        reqwest::Client::new()
+    }
+}
+
+fn should_bypass_proxy(base_url: &str) -> bool {
+    reqwest::Url::parse(base_url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_owned))
+        .is_some_and(|host| {
+            host.eq_ignore_ascii_case("localhost")
+                || host.parse::<IpAddr>().is_ok_and(|ip| ip.is_loopback())
+        })
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthSource {
@@ -118,10 +140,11 @@ pub struct ClawApiClient {
 impl ClawApiClient {
     #[must_use]
     pub fn new(api_key: impl Into<String>) -> Self {
+        let base_url = DEFAULT_BASE_URL.to_string();
         Self {
-            http: reqwest::Client::new(),
+            http: build_http_client(&base_url),
             auth: AuthSource::ApiKey(api_key.into()),
-            base_url: DEFAULT_BASE_URL.to_string(),
+            base_url,
             max_retries: DEFAULT_MAX_RETRIES,
             initial_backoff: DEFAULT_INITIAL_BACKOFF,
             max_backoff: DEFAULT_MAX_BACKOFF,
@@ -130,10 +153,11 @@ impl ClawApiClient {
 
     #[must_use]
     pub fn from_auth(auth: AuthSource) -> Self {
+        let base_url = DEFAULT_BASE_URL.to_string();
         Self {
-            http: reqwest::Client::new(),
+            http: build_http_client(&base_url),
             auth,
-            base_url: DEFAULT_BASE_URL.to_string(),
+            base_url,
             max_retries: DEFAULT_MAX_RETRIES,
             initial_backoff: DEFAULT_INITIAL_BACKOFF,
             max_backoff: DEFAULT_MAX_BACKOFF,
@@ -177,7 +201,9 @@ impl ClawApiClient {
 
     #[must_use]
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
-        self.base_url = base_url.into();
+        let base_url = base_url.into();
+        self.http = build_http_client(&base_url);
+        self.base_url = base_url;
         self
     }
 
@@ -652,7 +678,7 @@ mod tests {
 
     use super::{
         now_unix_timestamp, oauth_token_is_expired, resolve_saved_oauth_token,
-        resolve_startup_auth_source, ClawApiClient, AuthSource, OAuthTokenSet,
+        resolve_startup_auth_source, AuthSource, ClawApiClient, OAuthTokenSet,
     };
     use crate::types::{ContentBlockDelta, MessageRequest};
 
@@ -661,6 +687,31 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    struct EnvVarGuard {
+        key: &'static str,
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let original = std::env::var_os(key);
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
     }
 
     fn temp_config_home() -> std::path::PathBuf {
@@ -829,6 +880,12 @@ mod tests {
         std::env::set_var("CLAW_CONFIG_HOME", &config_home);
         std::env::remove_var("ANTHROPIC_AUTH_TOKEN");
         std::env::remove_var("ANTHROPIC_API_KEY");
+        let _http_proxy = EnvVarGuard::set("HTTP_PROXY", None);
+        let _https_proxy = EnvVarGuard::set("HTTPS_PROXY", None);
+        let _all_proxy = EnvVarGuard::set("ALL_PROXY", None);
+        let _http_proxy_lower = EnvVarGuard::set("http_proxy", None);
+        let _https_proxy_lower = EnvVarGuard::set("https_proxy", None);
+        let _all_proxy_lower = EnvVarGuard::set("all_proxy", None);
         save_oauth_credentials(&runtime::OAuthTokenSet {
             access_token: "expired-access-token".to_string(),
             refresh_token: Some("refresh-token".to_string()),
@@ -917,6 +974,12 @@ mod tests {
         std::env::set_var("CLAW_CONFIG_HOME", &config_home);
         std::env::remove_var("ANTHROPIC_AUTH_TOKEN");
         std::env::remove_var("ANTHROPIC_API_KEY");
+        let _http_proxy = EnvVarGuard::set("HTTP_PROXY", None);
+        let _https_proxy = EnvVarGuard::set("HTTPS_PROXY", None);
+        let _all_proxy = EnvVarGuard::set("ALL_PROXY", None);
+        let _http_proxy_lower = EnvVarGuard::set("http_proxy", None);
+        let _https_proxy_lower = EnvVarGuard::set("https_proxy", None);
+        let _all_proxy_lower = EnvVarGuard::set("all_proxy", None);
         save_oauth_credentials(&runtime::OAuthTokenSet {
             access_token: "expired-access-token".to_string(),
             refresh_token: Some("refresh-token".to_string()),

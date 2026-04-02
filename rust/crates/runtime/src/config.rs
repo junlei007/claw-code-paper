@@ -48,6 +48,8 @@ pub struct RuntimePluginConfig {
 pub struct RuntimeFeatureConfig {
     hooks: RuntimeHookConfig,
     plugins: RuntimePluginConfig,
+    providers: RuntimeProviderConfig,
+    research: RuntimeResearchConfig,
     mcp: McpConfigCollection,
     oauth: Option<OAuthConfig>,
     model: Option<String>,
@@ -59,6 +61,34 @@ pub struct RuntimeFeatureConfig {
 pub struct RuntimeHookConfig {
     pre_tool_use: Vec<String>,
     post_tool_use: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RuntimeProviderConfig {
+    default_profile: Option<String>,
+    profiles: BTreeMap<String, RuntimeProviderProfile>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeProviderTransport {
+    OpenAiCompat,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeProviderProfile {
+    transport: RuntimeProviderTransport,
+    provider_name: String,
+    api_key_env: String,
+    base_url: String,
+    base_url_env: Option<String>,
+    default_model: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct RuntimeResearchConfig {
+    enabled: bool,
+    profile: Option<String>,
+    artifact_dir: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -242,6 +272,8 @@ impl ConfigLoader {
         let feature_config = RuntimeFeatureConfig {
             hooks: parse_optional_hooks_config(&merged_value)?,
             plugins: parse_optional_plugin_config(&merged_value)?,
+            providers: parse_optional_provider_config(&merged_value)?,
+            research: parse_optional_research_config(&merged_value)?,
             mcp: McpConfigCollection {
                 servers: mcp_servers,
             },
@@ -310,6 +342,16 @@ impl RuntimeConfig {
     }
 
     #[must_use]
+    pub fn providers(&self) -> &RuntimeProviderConfig {
+        &self.feature_config.providers
+    }
+
+    #[must_use]
+    pub fn research(&self) -> &RuntimeResearchConfig {
+        &self.feature_config.research
+    }
+
+    #[must_use]
     pub fn oauth(&self) -> Option<&OAuthConfig> {
         self.feature_config.oauth.as_ref()
     }
@@ -344,6 +386,18 @@ impl RuntimeFeatureConfig {
     }
 
     #[must_use]
+    pub fn with_providers(mut self, providers: RuntimeProviderConfig) -> Self {
+        self.providers = providers;
+        self
+    }
+
+    #[must_use]
+    pub fn with_research(mut self, research: RuntimeResearchConfig) -> Self {
+        self.research = research;
+        self
+    }
+
+    #[must_use]
     pub fn hooks(&self) -> &RuntimeHookConfig {
         &self.hooks
     }
@@ -351,6 +405,16 @@ impl RuntimeFeatureConfig {
     #[must_use]
     pub fn plugins(&self) -> &RuntimePluginConfig {
         &self.plugins
+    }
+
+    #[must_use]
+    pub fn providers(&self) -> &RuntimeProviderConfig {
+        &self.providers
+    }
+
+    #[must_use]
+    pub fn research(&self) -> &RuntimeResearchConfig {
+        &self.research
     }
 
     #[must_use]
@@ -415,6 +479,72 @@ impl RuntimePluginConfig {
             .get(plugin_id)
             .copied()
             .unwrap_or(default_enabled)
+    }
+}
+
+impl RuntimeProviderConfig {
+    #[must_use]
+    pub fn default_profile(&self) -> Option<&str> {
+        self.default_profile.as_deref()
+    }
+
+    #[must_use]
+    pub fn profiles(&self) -> &BTreeMap<String, RuntimeProviderProfile> {
+        &self.profiles
+    }
+
+    #[must_use]
+    pub fn profile(&self, profile_id: &str) -> Option<&RuntimeProviderProfile> {
+        self.profiles.get(profile_id)
+    }
+}
+
+impl RuntimeProviderProfile {
+    #[must_use]
+    pub fn transport(&self) -> RuntimeProviderTransport {
+        self.transport
+    }
+
+    #[must_use]
+    pub fn provider_name(&self) -> &str {
+        &self.provider_name
+    }
+
+    #[must_use]
+    pub fn api_key_env(&self) -> &str {
+        &self.api_key_env
+    }
+
+    #[must_use]
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    #[must_use]
+    pub fn base_url_env(&self) -> Option<&str> {
+        self.base_url_env.as_deref()
+    }
+
+    #[must_use]
+    pub fn default_model(&self) -> Option<&str> {
+        self.default_model.as_deref()
+    }
+}
+
+impl RuntimeResearchConfig {
+    #[must_use]
+    pub fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    #[must_use]
+    pub fn profile(&self) -> Option<&str> {
+        self.profile.as_deref()
+    }
+
+    #[must_use]
+    pub fn artifact_dir(&self) -> Option<&str> {
+        self.artifact_dir.as_deref()
     }
 }
 
@@ -507,7 +637,7 @@ fn read_optional_json_object(
 
     let parsed = match JsonValue::parse(&contents) {
         Ok(parsed) => parsed,
-        Err(error) if is_legacy_config => return Ok(None),
+        Err(_error) if is_legacy_config => return Ok(None),
         Err(error) => return Err(ConfigError::Parse(format!("{}: {error}", path.display()))),
     };
     let Some(object) = parsed.as_object() else {
@@ -600,6 +730,78 @@ fn parse_optional_plugin_config(root: &JsonValue) -> Result<RuntimePluginConfig,
     config.bundled_root =
         optional_string(plugins, "bundledRoot", "merged settings.plugins")?.map(str::to_string);
     Ok(config)
+}
+
+fn parse_optional_provider_config(root: &JsonValue) -> Result<RuntimeProviderConfig, ConfigError> {
+    let Some(object) = root.as_object() else {
+        return Ok(RuntimeProviderConfig::default());
+    };
+    let Some(providers_value) = object.get("providers") else {
+        return Ok(RuntimeProviderConfig::default());
+    };
+    let providers = expect_object(providers_value, "merged settings.providers")?;
+
+    let default_profile =
+        optional_string(providers, "default", "merged settings.providers")?.map(str::to_string);
+
+    let mut parsed_profiles = BTreeMap::new();
+    if let Some(profiles_value) = providers.get("profiles") {
+        let profiles = expect_object(profiles_value, "merged settings.providers.profiles")?;
+        for (profile_id, profile_value) in profiles {
+            let context = format!("merged settings.providers.profiles.{profile_id}");
+            let profile = parse_provider_profile(profile_value, &context)?;
+            parsed_profiles.insert(profile_id.clone(), profile);
+        }
+    }
+
+    Ok(RuntimeProviderConfig {
+        default_profile,
+        profiles: parsed_profiles,
+    })
+}
+
+fn parse_optional_research_config(root: &JsonValue) -> Result<RuntimeResearchConfig, ConfigError> {
+    let Some(object) = root.as_object() else {
+        return Ok(RuntimeResearchConfig::default());
+    };
+    let Some(research_value) = object.get("research") else {
+        return Ok(RuntimeResearchConfig::default());
+    };
+    let research = expect_object(research_value, "merged settings.research")?;
+
+    Ok(RuntimeResearchConfig {
+        enabled: optional_bool(research, "enabled", "merged settings.research")?.unwrap_or(false),
+        profile: optional_string(research, "profile", "merged settings.research")?
+            .map(str::to_string),
+        artifact_dir: optional_string(research, "artifactDir", "merged settings.research")?
+            .map(str::to_string),
+    })
+}
+
+fn parse_provider_profile(
+    value: &JsonValue,
+    context: &str,
+) -> Result<RuntimeProviderProfile, ConfigError> {
+    let object = expect_object(value, context)?;
+    let transport = match expect_string(object, "type", context)? {
+        "openai-compat" => RuntimeProviderTransport::OpenAiCompat,
+        other => {
+            return Err(ConfigError::Parse(format!(
+                "{context}: unsupported provider type {other}"
+            )))
+        }
+    };
+
+    Ok(RuntimeProviderProfile {
+        transport,
+        provider_name: optional_string(object, "providerName", context)?
+            .unwrap_or("OpenAI-compatible")
+            .to_string(),
+        api_key_env: expect_string(object, "apiKeyEnv", context)?.to_string(),
+        base_url: expect_string(object, "baseUrl", context)?.to_string(),
+        base_url_env: optional_string(object, "baseUrlEnv", context)?.map(str::to_string),
+        default_model: optional_string(object, "defaultModel", context)?.map(str::to_string),
+    })
 }
 
 fn parse_optional_permission_mode(
@@ -940,7 +1142,7 @@ fn push_unique(target: &mut Vec<String>, value: String) {
 mod tests {
     use super::{
         ConfigLoader, ConfigSource, McpServerConfig, McpTransport, ResolvedPermissionMode,
-        CLAW_SETTINGS_SCHEMA_NAME,
+        RuntimeProviderTransport, CLAW_SETTINGS_SCHEMA_NAME,
     };
     use crate::json::JsonValue;
     use crate::sandbox::FilesystemIsolationMode;
@@ -1265,6 +1467,131 @@ mod tests {
             Some("plugin-cache/installed.json")
         );
         assert_eq!(loaded.plugins().bundled_root(), Some("./bundled-plugins"));
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn parses_provider_profiles() {
+        let root = temp_dir();
+        let cwd = root.join("project");
+        let home = root.join("home").join(".claw");
+        fs::create_dir_all(cwd.join(".claw")).expect("project config dir");
+        fs::create_dir_all(&home).expect("home config dir");
+
+        fs::write(
+            home.join("settings.json"),
+            r#"{
+              "model": "opus",
+              "providers": {
+                "default": "deepseek",
+                "profiles": {
+                  "deepseek": {
+                    "type": "openai-compat",
+                    "providerName": "DeepSeek",
+                    "apiKeyEnv": "DEEPSEEK_API_KEY",
+                    "baseUrl": "https://api.deepseek.com/v1",
+                    "baseUrlEnv": "DEEPSEEK_BASE_URL",
+                    "defaultModel": "deepseek-chat"
+                  },
+                  "openrouter": {
+                    "type": "openai-compat",
+                    "providerName": "OpenRouter",
+                    "apiKeyEnv": "OPENROUTER_API_KEY",
+                    "baseUrl": "https://openrouter.ai/api/v1"
+                  }
+                }
+              }
+            }"#,
+        )
+        .expect("write provider settings");
+
+        let loaded = ConfigLoader::new(&cwd, &home)
+            .load()
+            .expect("config should load");
+
+        assert_eq!(loaded.providers().default_profile(), Some("deepseek"));
+        let deepseek = loaded
+            .providers()
+            .profile("deepseek")
+            .expect("deepseek profile should exist");
+        assert_eq!(deepseek.transport(), RuntimeProviderTransport::OpenAiCompat);
+        assert_eq!(deepseek.provider_name(), "DeepSeek");
+        assert_eq!(deepseek.api_key_env(), "DEEPSEEK_API_KEY");
+        assert_eq!(deepseek.base_url(), "https://api.deepseek.com/v1");
+        assert_eq!(deepseek.base_url_env(), Some("DEEPSEEK_BASE_URL"));
+        assert_eq!(deepseek.default_model(), Some("deepseek-chat"));
+
+        let openrouter = loaded
+            .providers()
+            .profile("openrouter")
+            .expect("openrouter profile should exist");
+        assert_eq!(openrouter.default_model(), None);
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn rejects_unknown_provider_profile_type() {
+        let root = temp_dir();
+        let cwd = root.join("project");
+        let home = root.join("home").join(".claw");
+        fs::create_dir_all(cwd.join(".claw")).expect("project config dir");
+        fs::create_dir_all(&home).expect("home config dir");
+
+        fs::write(
+            home.join("settings.json"),
+            r#"{
+              "providers": {
+                "profiles": {
+                  "bad": {
+                    "type": "custom-http",
+                    "apiKeyEnv": "BAD_KEY",
+                    "baseUrl": "https://example.test/v1"
+                  }
+                }
+              }
+            }"#,
+        )
+        .expect("write provider settings");
+
+        let error = ConfigLoader::new(&cwd, &home)
+            .load()
+            .expect_err("config should fail");
+        assert!(error
+            .to_string()
+            .contains("unsupported provider type custom-http"));
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn parses_research_config() {
+        let root = temp_dir();
+        let cwd = root.join("project");
+        let home = root.join("home").join(".claw");
+        fs::create_dir_all(cwd.join(".claw")).expect("project config dir");
+        fs::create_dir_all(&home).expect("home config dir");
+
+        fs::write(
+            home.join("settings.json"),
+            r#"{
+              "research": {
+                "enabled": true,
+                "profile": "survey",
+                "artifactDir": ".claw/artifacts"
+              }
+            }"#,
+        )
+        .expect("write research settings");
+
+        let loaded = ConfigLoader::new(&cwd, &home)
+            .load()
+            .expect("config should load");
+
+        assert!(loaded.research().enabled());
+        assert_eq!(loaded.research().profile(), Some("survey"));
+        assert_eq!(loaded.research().artifact_dir(), Some(".claw/artifacts"));
 
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }

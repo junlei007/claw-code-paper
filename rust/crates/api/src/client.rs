@@ -1,5 +1,5 @@
 use crate::error::ApiError;
-use crate::providers::claw_provider::{self, ClawApiClient, AuthSource};
+use crate::providers::claw_provider::{self, AuthSource, ClawApiClient};
 use crate::providers::openai_compat::{self, OpenAiCompatClient, OpenAiCompatConfig};
 use crate::providers::{self, Provider, ProviderKind};
 use crate::types::{MessageRequest, MessageResponse, StreamEvent};
@@ -28,6 +28,10 @@ pub enum ProviderClient {
 impl ProviderClient {
     pub fn from_model(model: &str) -> Result<Self, ApiError> {
         Self::from_model_with_default_auth(model, None)
+    }
+
+    pub fn from_openai_compat_config(config: OpenAiCompatConfig) -> Result<Self, ApiError> {
+        Ok(Self::OpenAi(OpenAiCompatClient::from_env(config)?))
     }
 
     pub fn from_model_with_default_auth(
@@ -116,7 +120,7 @@ pub fn read_base_url() -> String {
 
 #[must_use]
 pub fn read_xai_base_url() -> String {
-    openai_compat::read_base_url(OpenAiCompatConfig::xai())
+    openai_compat::read_base_url(&OpenAiCompatConfig::xai())
 }
 
 #[cfg(test)]
