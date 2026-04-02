@@ -1163,8 +1163,12 @@ mod tests {
     }
 
     fn cleanup_script(script_path: &Path) {
-        fs::remove_file(script_path).expect("cleanup script");
-        fs::remove_dir_all(script_path.parent().expect("script parent")).expect("cleanup dir");
+        if let Err(error) = fs::remove_file(script_path) {
+            assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "cleanup script");
+        }
+        if let Err(error) = fs::remove_dir_all(script_path.parent().expect("script parent")) {
+            assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "cleanup dir");
+        }
     }
 
     fn manager_server_config(

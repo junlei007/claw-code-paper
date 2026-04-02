@@ -162,6 +162,10 @@ impl CliApp {
                 writeln!(out, "Unknown slash command: /{name}")?;
                 Ok(CommandResult::Continue)
             }
+            _ => {
+                writeln!(out, "Slash command unavailable in this mode")?;
+                Ok(CommandResult::Continue)
+            }
         }
     }
 
@@ -172,7 +176,7 @@ impl CliApp {
                 SlashCommand::Help => "/help",
                 SlashCommand::Status => "/status",
                 SlashCommand::Compact => "/compact",
-                SlashCommand::Unknown(_) => continue,
+                _ => continue,
             };
             writeln!(out, "  {name:<9} {}", handler.summary)?;
         }

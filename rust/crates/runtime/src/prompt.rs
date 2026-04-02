@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::config::{ConfigError, ConfigLoader, RuntimeConfig};
+use lsp::LspContextEnrichment;
 
 #[derive(Debug)]
 pub enum PromptBuildError {
@@ -127,6 +128,15 @@ impl SystemPromptBuilder {
     #[must_use]
     pub fn append_section(mut self, section: impl Into<String>) -> Self {
         self.append_sections.push(section.into());
+        self
+    }
+
+    #[must_use]
+    pub fn with_lsp_context(mut self, enrichment: &LspContextEnrichment) -> Self {
+        if !enrichment.is_empty() {
+            self.append_sections
+                .push(enrichment.render_prompt_section());
+        }
         self
     }
 

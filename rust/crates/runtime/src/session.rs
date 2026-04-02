@@ -3,10 +3,13 @@ use std::fmt::{Display, Formatter};
 use std::fs;
 use std::path::Path;
 
+use serde::{Deserialize, Serialize};
+
 use crate::json::{JsonError, JsonValue};
 use crate::usage::TokenUsage;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum MessageRole {
     System,
     User,
@@ -14,7 +17,8 @@ pub enum MessageRole {
     Tool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlock {
     Text {
         text: String,
@@ -32,14 +36,14 @@ pub enum ContentBlock {
     },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConversationMessage {
     pub role: MessageRole,
     pub blocks: Vec<ContentBlock>,
     pub usage: Option<TokenUsage>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Session {
     pub version: u32,
     pub messages: Vec<ConversationMessage>,

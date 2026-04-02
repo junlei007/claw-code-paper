@@ -41,6 +41,10 @@ pub use file_ops::{
     WriteFileOutput,
 };
 pub use hooks::{HookEvent, HookRunResult, HookRunner};
+pub use lsp::{
+    FileDiagnostics, LspContextEnrichment, LspError, LspManager, LspServerConfig, SymbolLocation,
+    WorkspaceDiagnostics,
+};
 pub use mcp::{
     mcp_server_signature, mcp_tool_name, mcp_tool_prefix, normalize_name_for_mcp,
     scoped_mcp_config_hash, unwrap_ccr_proxy_url,

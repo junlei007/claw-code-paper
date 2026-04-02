@@ -951,7 +951,10 @@ fn run_resume_command(
                 message: Some(handle_skills_slash_command(args.as_deref(), &cwd)?),
             })
         }
-        SlashCommand::Bughunter { .. }
+        SlashCommand::Branch { .. }
+        | SlashCommand::Worktree { .. }
+        | SlashCommand::CommitPushPr { .. }
+        | SlashCommand::Bughunter { .. }
         | SlashCommand::Commit
         | SlashCommand::Pr { .. }
         | SlashCommand::Issue { .. }
@@ -1211,6 +1214,7 @@ impl LiveCli {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn handle_repl_command(
         &mut self,
         command: SlashCommand,
@@ -1300,6 +1304,18 @@ impl LiveCli {
             }
             SlashCommand::Skills { args } => {
                 Self::print_skills(args.as_deref())?;
+                false
+            }
+            SlashCommand::Branch { .. } => {
+                eprintln!("branch commands are not available in this build");
+                false
+            }
+            SlashCommand::Worktree { .. } => {
+                eprintln!("worktree commands are not available in this build");
+                false
+            }
+            SlashCommand::CommitPushPr { .. } => {
+                eprintln!("commit-push-pr automation is not available in this build");
                 false
             }
             SlashCommand::Unknown(name) => {
@@ -3946,16 +3962,23 @@ mod tests {
     use serde_json::json;
     use std::fs;
     use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::Duration;
     use std::time::{SystemTime, UNIX_EPOCH};
     use tools::GlobalToolRegistry;
+
+    static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     fn temp_dir() -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("time should be after epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("claw-cli-tests-{nanos}"))
+        let seq = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "claw-cli-tests-{}-{nanos}-{seq}",
+            std::process::id()
+        ))
     }
 
     fn registry_with_plugin_tool() -> GlobalToolRegistry {
@@ -4377,7 +4400,7 @@ mod tests {
     fn shared_help_uses_resume_annotation_copy() {
         let help = commands::render_slash_command_help();
         assert!(help.contains("Slash commands"));
-        assert!(help.contains("works with --resume SESSION.json"));
+        assert!(help.contains("[resume] = also available via claw --resume SESSION.json"));
     }
 
     #[test]
