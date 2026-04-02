@@ -1,0 +1,51 @@
+{
+  "name": "research-regression",
+  "version": "0.1.0",
+  "description": "Prototype external plugin for stable regression analysis workflows outside the bundled core.",
+  "tools": [
+    {
+      "name": "regression_ols",
+      "description": "Run a lightweight OLS regression on a CSV dataset and return coefficients plus fit diagnostics.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "datasetPath": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "predictors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "delimiter": {
+            "type": "string"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "includeIntercept": {
+            "type": "boolean"
+          },
+          "outputPath": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "datasetPath",
+          "outcome",
+          "predictors"
+        ],
+        "additionalProperties": true
+      },
+      "command": "python3",
+      "args": [
+        "./tools/regression_tools.py"
+      ],
+      "requiredPermission": "workspace-write"
+    }
+  ]
+}

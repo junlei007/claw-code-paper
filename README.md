@@ -27,6 +27,9 @@
 4. 科研方法总表、扩展路径与治理规范：
    - [`docs/research-method-registry.md`](docs/research-method-registry.md)
    - [`docs/research-method-standards.md`](docs/research-method-standards.md)
+5. 两个最小扩展示例：
+   - project skill scaffold：[`docs/project-skill-synthesis.md`](docs/project-skill-synthesis.md)
+   - regression external plugin prototype：[`examples/external-plugins/research-regression/README.md`](examples/external-plugins/research-regression/README.md)
 
 最短上手路径：
 
@@ -106,6 +109,11 @@ survey_metadata -> survey_score -> survey_psychometrics -> survey_report
 
 - [`docs/research-method-registry.md`](docs/research-method-registry.md)
 - [`docs/research-method-standards.md`](docs/research-method-standards.md)
+
+当前已经有两个最小扩展落点：
+
+- 用 `python3 tools/scaffold_project_skill.py ...` 快速建立项目级 skill 草稿
+- 参考 [`examples/external-plugins/research-regression/`](examples/external-plugins/research-regression/) 的 external plugin 原型
 
 ---
 

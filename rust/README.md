@@ -44,6 +44,10 @@ survey_metadata
   [`../docs/research-method-registry.md`](../docs/research-method-registry.md)
 - 没有集成的方法应该做成 skill 还是 plugin：
   [`../docs/research-method-standards.md`](../docs/research-method-standards.md)
+- 如何快速生成一个项目级 skill 草稿：
+  [`../docs/project-skill-synthesis.md`](../docs/project-skill-synthesis.md)
+- regression external plugin 原型长什么样：
+  [`../examples/external-plugins/research-regression/README.md`](../examples/external-plugins/research-regression/README.md)
 
 ---
 

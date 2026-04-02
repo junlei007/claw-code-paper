@@ -206,6 +206,20 @@ This project should support **controlled self-extension**, not unconstrained sel
 5. save as project skill
 6. optionally publish to a registry later
 
+### Current scaffold command
+
+The current MVP scaffold command is:
+
+```bash
+python3 tools/scaffold_project_skill.py ...
+```
+
+It generates a governed project-local draft under:
+
+```text
+.claw/project-skills/<slug>/
+```
+
 ### Safety rule
 
 Do not treat generated skills as trustworthy by default.
