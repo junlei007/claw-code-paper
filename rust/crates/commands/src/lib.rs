@@ -485,10 +485,11 @@ pub fn resume_supported_slash_commands() -> Vec<&'static SlashCommandSpec> {
 
 #[must_use]
 pub fn render_slash_command_help() -> String {
+    let cli_name = current_cli_name();
     let mut lines = vec![
         "Slash commands".to_string(),
         "  Tab completes commands inside the REPL.".to_string(),
-        "  [resume] = also available via claw --resume SESSION.json".to_string(),
+        format!("  [resume] = also available via {cli_name} --resume SESSION.json"),
     ];
 
     for category in [
@@ -1705,11 +1706,31 @@ fn normalize_optional_args(args: Option<&str>) -> Option<&str> {
     args.map(str::trim).filter(|value| !value.is_empty())
 }
 
+fn current_cli_name() -> String {
+    if let Ok(value) = env::var("CLAW_DISPLAY_NAME") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    env::args()
+        .next()
+        .and_then(|value| {
+            Path::new(&value)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(ToOwned::to_owned)
+        })
+        .filter(|value| matches!(value.as_str(), "claw" | "paperowl"))
+        .unwrap_or_else(|| "claw".to_string())
+}
+
 fn render_agents_usage(unexpected: Option<&str>) -> String {
+    let cli_name = current_cli_name();
     let mut lines = vec![
         "Agents".to_string(),
         "  Usage            /agents".to_string(),
-        "  Direct CLI       claw agents".to_string(),
+        format!("  Direct CLI       {cli_name} agents"),
         "  Sources          .codex/agents, .claw/agents, $CODEX_HOME/agents".to_string(),
     ];
     if let Some(args) = unexpected {

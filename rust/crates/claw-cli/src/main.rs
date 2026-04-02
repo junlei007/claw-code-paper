@@ -63,13 +63,33 @@ type AllowedToolSet = BTreeSet<String>;
 
 fn main() {
     if let Err(error) = run() {
+        let cli_name = current_cli_name();
         eprintln!(
             "error: {error}
 
-Run `claw --help` for usage."
+Run `{cli_name} --help` for usage."
         );
         std::process::exit(1);
     }
+}
+
+fn current_cli_name() -> String {
+    if let Ok(value) = env::var("CLAW_DISPLAY_NAME") {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    env::args()
+        .next()
+        .and_then(|value| {
+            Path::new(&value)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(ToOwned::to_owned)
+        })
+        .filter(|value| matches!(value.as_str(), "claw" | "paperowl"))
+        .unwrap_or_else(|| "claw".to_string())
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -1102,7 +1122,7 @@ impl LiveCli {
 ██║     ██║     ███████║██║ █╗ ██║\n\
 ██║     ██║     ██╔══██║██║███╗██║\n\
 ╚██████╗███████╗██║  ██║╚███╔███╔╝\n\
- ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝\x1b[0m \x1b[38;5;229mCode\x1b[0m 🦉\n\n\
+ ╚═════╝╚══════╝╚═╝  ╚═╝ ╚══╝╚══╝\x1b[0m \x1b[38;5;229mPaperOwl\x1b[0m 🦉\n\n\
   \x1b[2mModel\x1b[0m            {}\n\
   \x1b[2mProvider\x1b[0m         {}\n\
   \x1b[2mPermissions\x1b[0m      {}\n\
@@ -2351,8 +2371,9 @@ fn parse_titled_body(value: &str) -> Option<(String, String)> {
 fn render_version_report() -> String {
     let git_sha = GIT_SHA.unwrap_or("unknown");
     let target = BUILD_TARGET.unwrap_or("unknown");
+    let cli_name = current_cli_name();
     format!(
-        "Claw Code\n  Version          {VERSION}\n  Git SHA          {git_sha}\n  Target           {target}\n  Build date       {DEFAULT_DATE}"
+        "{cli_name}\n  Version          {VERSION}\n  Git SHA          {git_sha}\n  Target           {target}\n  Build date       {DEFAULT_DATE}"
     )
 }
 
@@ -3849,40 +3870,44 @@ fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
 }
 
 fn print_help_to(out: &mut impl Write) -> io::Result<()> {
-    writeln!(out, "claw v{VERSION}")?;
+    let cli_name = current_cli_name();
+    writeln!(out, "{cli_name} v{VERSION}")?;
     writeln!(out)?;
     writeln!(out, "Usage:")?;
     writeln!(
         out,
-        "  claw [--model MODEL] [--provider PROFILE] [--allowedTools TOOL[,TOOL...]]"
+        "  {cli_name} [--model MODEL] [--provider PROFILE] [--allowedTools TOOL[,TOOL...]]"
     )?;
     writeln!(out, "      Start the interactive REPL")?;
     writeln!(
         out,
-        "  claw [--model MODEL] [--provider PROFILE] [--output-format text|json] prompt TEXT"
+        "  {cli_name} [--model MODEL] [--provider PROFILE] [--output-format text|json] prompt TEXT"
     )?;
     writeln!(out, "      Send one prompt and exit")?;
     writeln!(
         out,
-        "  claw [--model MODEL] [--provider PROFILE] [--output-format text|json] TEXT"
+        "  {cli_name} [--model MODEL] [--provider PROFILE] [--output-format text|json] TEXT"
     )?;
     writeln!(out, "      Shorthand non-interactive prompt mode")?;
     writeln!(
         out,
-        "  claw --resume SESSION.json [/status] [/compact] [...]"
+        "  {cli_name} --resume SESSION.json [/status] [/compact] [...]"
     )?;
     writeln!(
         out,
         "      Inspect or maintain a saved session without entering the REPL"
     )?;
-    writeln!(out, "  claw dump-manifests")?;
-    writeln!(out, "  claw bootstrap-plan")?;
-    writeln!(out, "  claw agents")?;
-    writeln!(out, "  claw skills")?;
-    writeln!(out, "  claw system-prompt [--cwd PATH] [--date YYYY-MM-DD]")?;
-    writeln!(out, "  claw login")?;
-    writeln!(out, "  claw logout")?;
-    writeln!(out, "  claw init")?;
+    writeln!(out, "  {cli_name} dump-manifests")?;
+    writeln!(out, "  {cli_name} bootstrap-plan")?;
+    writeln!(out, "  {cli_name} agents")?;
+    writeln!(out, "  {cli_name} skills")?;
+    writeln!(
+        out,
+        "  {cli_name} system-prompt [--cwd PATH] [--date YYYY-MM-DD]"
+    )?;
+    writeln!(out, "  {cli_name} login")?;
+    writeln!(out, "  {cli_name} logout")?;
+    writeln!(out, "  {cli_name} init")?;
     writeln!(out)?;
     writeln!(out, "Flags:")?;
     writeln!(
@@ -3924,23 +3949,23 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
         .join(", ");
     writeln!(out, "Resume-safe commands: {resume_commands}")?;
     writeln!(out, "Examples:")?;
-    writeln!(out, "  claw --model opus \"summarize this repo\"")?;
+    writeln!(out, "  {cli_name} --model opus \"summarize this repo\"")?;
     writeln!(
         out,
-        "  claw --output-format json prompt \"explain src/main.rs\""
+        "  {cli_name} --output-format json prompt \"explain src/main.rs\""
     )?;
     writeln!(
         out,
-        "  claw --allowedTools read,glob \"summarize Cargo.toml\""
+        "  {cli_name} --allowedTools read,glob \"summarize Cargo.toml\""
     )?;
     writeln!(
         out,
-        "  claw --resume session.json /status /diff /export notes.txt"
+        "  {cli_name} --resume session.json /status /diff /export notes.txt"
     )?;
-    writeln!(out, "  claw agents")?;
-    writeln!(out, "  claw /skills")?;
-    writeln!(out, "  claw login")?;
-    writeln!(out, "  claw init")?;
+    writeln!(out, "  {cli_name} agents")?;
+    writeln!(out, "  {cli_name} /skills")?;
+    writeln!(out, "  {cli_name} login")?;
+    writeln!(out, "  {cli_name} init")?;
     Ok(())
 }
 
