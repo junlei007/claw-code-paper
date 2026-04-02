@@ -395,6 +395,281 @@ def normalize_string_list(value: Any) -> list[str]:
     return [str(item) for item in value if str(item).strip()]
 
 
+def normalize_scale_definitions(payload: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    raw_scales = payload.get("scaleDefinitions")
+    if not isinstance(raw_scales, list):
+        return [], []
+
+    scales: list[dict[str, Any]] = []
+    warnings: list[str] = []
+    for index, raw_scale in enumerate(raw_scales, start=1):
+        if not isinstance(raw_scale, dict):
+            warnings.append(
+                f"scaleDefinitions[{index - 1}] is not an object and was ignored."
+            )
+            continue
+
+        name = str(raw_scale.get("name") or f"scale_{index}").strip() or f"scale_{index}"
+        items = normalize_string_list(raw_scale.get("items"))
+        reverse_items = normalize_string_list(raw_scale.get("reverseItems"))
+        scoring = raw_scale.get("scoring") if isinstance(raw_scale.get("scoring"), dict) else {}
+        method = str(scoring.get("method") or raw_scale.get("method") or "mean").strip().lower()
+        if method not in {"mean", "sum"}:
+            warnings.append(
+                f"Scale {name} requested unsupported scoring method {method!r}; defaulted to 'mean'."
+            )
+            method = "mean"
+
+        min_valid_items_raw = scoring.get("minValidItems", raw_scale.get("minValidItems"))
+        min_valid_items = None
+        if min_valid_items_raw is not None:
+            try:
+                min_valid_items = max(1, int(min_valid_items_raw))
+            except Exception:
+                warnings.append(
+                    f"Scale {name} has invalid minValidItems={min_valid_items_raw!r}; it was ignored."
+                )
+
+        output_column = str(
+            raw_scale.get("outputColumn") or scoring.get("outputColumn") or f"{name}_score"
+        ).strip() or f"{name}_score"
+
+        scales.append(
+            {
+                "name": name,
+                "items": items,
+                "reverseItems": reverse_items,
+                "method": method,
+                "minValidItems": min_valid_items,
+                "outputColumn": output_column,
+            }
+        )
+
+    return scales, warnings
+
+
+def normalize_number(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def reverse_score_series(series: Any, response_min: float | None, response_max: float | None) -> tuple[Any, str | None]:
+    observed = series.dropna()
+    if observed.empty:
+        return series, None
+
+    low = response_min if response_min is not None else normalize_number(observed.min())
+    high = response_max if response_max is not None else normalize_number(observed.max())
+    if low is None or high is None:
+        return series, "Reverse-scoring bounds could not be determined from observed item values."
+
+    warning = None
+    if response_min is None or response_max is None:
+        warning = "Reverse-scoring bounds were inferred from observed item values."
+    return (low + high) - series, warning
+
+
+def build_scale_scores(
+    df: Any,
+    payload: dict[str, Any],
+) -> tuple[Any, list[dict[str, Any]], list[str]]:
+    scales, scale_warnings = normalize_scale_definitions(payload)
+    if not scales:
+        raise ToolInvocationError(
+            message="scaleDefinitions is required for survey_score",
+            code="missing_scale_definitions",
+        )
+
+    response_scale = payload.get("responseScale") if isinstance(payload.get("responseScale"), dict) else {}
+    response_min = normalize_number(response_scale.get("min"))
+    response_max = normalize_number(response_scale.get("max"))
+    top_level_reverse = set(normalize_string_list(payload.get("reverseItems")))
+    scored_df = df.copy()
+    scoring_results: list[dict[str, Any]] = []
+    warnings = list(scale_warnings)
+
+    for scale in scales:
+        name = scale["name"]
+        items = scale["items"]
+        reverse_items = sorted(top_level_reverse.union(scale["reverseItems"]))
+        output_column = scale["outputColumn"]
+        method = scale["method"]
+        missing_items = [item for item in items if item not in scored_df.columns]
+        usable_items = [item for item in items if item in scored_df.columns]
+
+        if not usable_items:
+            warnings.append(f"Scale {name} skipped because none of its declared items were found.")
+            scoring_results.append(
+                {
+                    "name": name,
+                    "outputColumn": output_column,
+                    "method": method,
+                    "items": items,
+                    "usableItems": [],
+                    "missingItems": missing_items,
+                    "rowsScored": 0,
+                    "warning": "No declared items were present in the dataset.",
+                }
+            )
+            continue
+
+        numeric_frame = scored_df[usable_items].apply(pd.to_numeric, errors="coerce")
+        reverse_warnings: list[str] = []
+        applied_reverse_items: list[str] = []
+        for item in reverse_items:
+            if item not in numeric_frame.columns:
+                continue
+            numeric_frame[item], reverse_warning = reverse_score_series(
+                numeric_frame[item], response_min, response_max
+            )
+            applied_reverse_items.append(item)
+            if reverse_warning:
+                reverse_warnings.append(f"{reverse_warning} ({item})")
+
+        valid_counts = numeric_frame.notna().sum(axis=1)
+        min_valid_items = scale["minValidItems"] or len(usable_items)
+        min_valid_items = min(min_valid_items, len(usable_items))
+        if method == "sum":
+            score_series = numeric_frame.sum(axis=1, min_count=1)
+        else:
+            score_series = numeric_frame.mean(axis=1)
+        score_series = score_series.mask(valid_counts < min_valid_items)
+        scored_df[output_column] = score_series
+
+        non_missing_scores = score_series.dropna()
+        scoring_results.append(
+            {
+                "name": name,
+                "outputColumn": output_column,
+                "method": method,
+                "items": items,
+                "usableItems": usable_items,
+                "missingItems": missing_items,
+                "reverseItemsApplied": applied_reverse_items,
+                "minValidItems": min_valid_items,
+                "rowsScored": int(non_missing_scores.shape[0]),
+                "missingScoreCount": int(score_series.isna().sum()),
+                "summary": {
+                    "mean": round(float(non_missing_scores.mean()), 4) if not non_missing_scores.empty else None,
+                    "std": round(float(non_missing_scores.std(ddof=1)), 4)
+                    if non_missing_scores.shape[0] > 1
+                    else None,
+                    "min": json_default(non_missing_scores.min()) if not non_missing_scores.empty else None,
+                    "max": json_default(non_missing_scores.max()) if not non_missing_scores.empty else None,
+                },
+                "warnings": reverse_warnings
+                + (
+                    [f"{len(missing_items)} declared items were not found."]
+                    if missing_items
+                    else []
+                ),
+            }
+        )
+        warnings.extend(f"Scale {name}: {warning}" for warning in reverse_warnings)
+        if missing_items:
+            warnings.append(f"Scale {name}: {len(missing_items)} declared items were not found.")
+
+    return scored_df, scoring_results, warnings
+
+
+def write_dataframe_artifact(df: Any, output_path: Path) -> dict[str, Any]:
+    suffix = output_path.suffix.lower()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if suffix == ".xlsx":
+        df.to_excel(output_path, index=False)
+        kind = "xlsx"
+    else:
+        sep = "\t" if suffix == ".tsv" else ","
+        df.to_csv(output_path, index=False, sep=sep)
+        kind = "tsv" if sep == "\t" else "csv"
+
+    return {
+        "path": str(output_path),
+        "workspaceRelativePath": workspace_relative_path(output_path),
+        "kind": kind,
+    }
+
+
+def run_scoring(
+    payload: dict[str, Any],
+    plugin_root: Path,
+    workspace_root: Path,
+) -> dict[str, Any]:
+    raw_dataset_path = payload.get("datasetPath")
+    if not isinstance(raw_dataset_path, str) or not raw_dataset_path.strip():
+        raise ToolInvocationError(
+            message="datasetPath is required for survey_score",
+            code="missing_dataset_path",
+        )
+
+    dataset_path = resolve_existing_path(raw_dataset_path, workspace_root, plugin_root)
+    if not dataset_path.exists():
+        raise ToolInvocationError(
+            message=f"dataset not found: {dataset_path}",
+            code="dataset_not_found",
+            details={"datasetPath": raw_dataset_path, "resolvedPath": str(dataset_path)},
+        )
+
+    fmt = detect_format(dataset_path, payload.get("format"))
+    dataframe, labels, warnings = load_dataframe(dataset_path, fmt, payload)
+    scored_df, scoring_results, scoring_warnings = build_scale_scores(dataframe, payload)
+    warnings.extend(scoring_warnings)
+
+    id_columns = normalize_string_list(payload.get("idColumns"))
+    preview_columns = [column for column in id_columns if column in scored_df.columns]
+    preview_columns.extend(
+        result["outputColumn"]
+        for result in scoring_results
+        if result["outputColumn"] in scored_df.columns
+    )
+    if not preview_columns:
+        preview_columns = [result["outputColumn"] for result in scoring_results if result["outputColumn"] in scored_df.columns]
+
+    preview = (
+        scored_df[preview_columns].head(5).replace({pd.NA: None}).to_dict(orient="records")
+        if preview_columns
+        else []
+    )
+
+    artifact = None
+    output_path_raw = payload.get("outputPath")
+    if isinstance(output_path_raw, str) and output_path_raw.strip():
+        output_path = resolve_output_path(output_path_raw, workspace_root)
+        artifact = write_dataframe_artifact(scored_df, output_path)
+
+    return {
+        "status": "ok",
+        "dataset": {
+            "path": str(dataset_path),
+            "format": fmt,
+            "rows": int(len(scored_df.index)),
+            "columns": int(len(scored_df.columns)),
+            "workspaceRelativePath": workspace_relative_path(dataset_path),
+            "labelsDetected": len(labels),
+        },
+        "scoring": {
+            "scaleCount": len(scoring_results),
+            "scales": scoring_results,
+            "previewColumns": preview_columns,
+            "previewRows": preview,
+            "artifact": artifact,
+        },
+        "backendHints": {
+            "primary": "python",
+            "recommendedNext": [
+                "inspect scored scale distributions and missingness",
+                "run survey_psychometrics on scored item definitions when needed",
+                "feed score summaries into survey_report or downstream models",
+            ],
+        },
+        "warnings": warnings,
+    }
+
+
 def infer_column_role(series: Any) -> str:
     if is_bool_dtype is not None and is_bool_dtype(series):
         return "boolean"
@@ -553,6 +828,8 @@ def main() -> None:
         payload = load_payload()
         if tool_name == "survey_metadata":
             result = run_metadata(payload, plugin_root, workspace_root)
+        elif tool_name == "survey_score":
+            result = run_scoring(payload, plugin_root, workspace_root)
         elif tool_name == "survey_report":
             result = render_report(payload, plugin_root, workspace_root)
         else:

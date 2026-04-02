@@ -178,6 +178,83 @@
       "requiredPermission": "read-only"
     },
     {
+      "name": "survey_score",
+      "description": "Compute reverse-keyed item scoring plus scale-level mean/sum scores and optionally export a scored dataset artifact.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "datasetPath": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "delimiter": {
+            "type": "string"
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "naValues": {
+            "type": "array"
+          },
+          "layout": {
+            "type": "string"
+          },
+          "sheetName": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ]
+          },
+          "scaleDefinitions": {
+            "type": "array"
+          },
+          "reverseItems": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "responseScale": {
+            "type": "object",
+            "properties": {
+              "min": {
+                "type": "number"
+              },
+              "max": {
+                "type": "number"
+              }
+            },
+            "additionalProperties": false
+          },
+          "idColumns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "outputPath": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "datasetPath",
+          "scaleDefinitions"
+        ],
+        "additionalProperties": true
+      },
+      "command": "python3",
+      "args": [
+        "./tools/survey_tools.py"
+      ],
+      "requiredPermission": "workspace-write"
+    },
+    {
       "name": "survey_report",
       "description": "Render a markdown survey-analysis report artifact from structured results and the bundled template.",
       "inputSchema": {
