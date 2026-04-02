@@ -218,6 +218,9 @@ enum ProjectSkillCommand {
         verification_status: Option<String>,
         held_out_validation_status: Option<String>,
     },
+    Doctor {
+        path: PathBuf,
+    },
 }
 
 impl CliOutputFormat {
@@ -473,8 +476,9 @@ fn parse_project_skill_args(args: &[String]) -> Result<CliAction, String> {
         "init" => parse_project_skill_init_args(&args[1..]),
         "validate" => parse_project_skill_validate_args(&args[1..]),
         "promote" => parse_project_skill_promote_args(&args[1..]),
+        "doctor" => parse_project_skill_doctor_args(&args[1..]),
         other => Err(format!(
-            "unknown project-skill subcommand '{other}'. Use init <slug>, validate <path>, or promote <path> --to <maturity>."
+            "unknown project-skill subcommand '{other}'. Use init <slug>, validate <path>, promote <path> --to <maturity>, or doctor <path>."
         )),
     }
 }
@@ -736,6 +740,20 @@ fn parse_project_skill_promote_args(args: &[String]) -> Result<CliAction, String
             to: to.ok_or_else(|| "project-skill promote requires --to".to_string())?,
             verification_status,
             held_out_validation_status,
+        },
+    })
+}
+
+fn parse_project_skill_doctor_args(args: &[String]) -> Result<CliAction, String> {
+    let Some(path) = args.first() else {
+        return Err("project-skill doctor requires a path".to_string());
+    };
+    if args.len() > 1 {
+        return Err("project-skill doctor accepts exactly one path".to_string());
+    }
+    Ok(CliAction::ProjectSkill {
+        command: ProjectSkillCommand::Doctor {
+            path: PathBuf::from(path),
         },
     })
 }
@@ -2620,6 +2638,11 @@ fn run_project_skill_command(
             println!("{status}");
             Ok(())
         }
+        ProjectSkillCommand::Doctor { path } => {
+            let status = doctor_project_skill(path)?;
+            println!("{status}");
+            Ok(())
+        }
     }
 }
 
@@ -2902,6 +2925,79 @@ fn project_skill_warnings_and_remediation(
     (warnings, remediation)
 }
 
+fn project_skill_doctor_diagnostics(value: &serde_json::Value) -> Vec<(String, String)> {
+    let mut diagnostics = Vec::new();
+
+    let maturity = metadata_string(value, "maturity_level").unwrap_or("unknown");
+    let verification_status = metadata_string(value, "verification_status").unwrap_or("unknown");
+    let held_out_validation_status =
+        metadata_string(value, "held_out_validation_status").unwrap_or("unknown");
+
+    if maturity == "draft" && verification_status == "drafted" {
+        diagnostics.push((
+            "info".to_string(),
+            "draft skill has not yet recorded a realistic validation run".to_string(),
+        ));
+    }
+    if held_out_validation_status == "pending" {
+        diagnostics.push((
+            "warn".to_string(),
+            "held-out validation is still pending; reuse outside the source material may be risky"
+                .to_string(),
+        ));
+    }
+    if held_out_validation_status == "failed" {
+        diagnostics.push((
+            "warn".to_string(),
+            "held-out validation failed; revise the workflow before promotion".to_string(),
+        ));
+    }
+
+    if let Some(sources) = metadata_array(value, "source_materials") {
+        let unresolved = sources
+            .iter()
+            .filter(|entry| entry.get("exists").and_then(|flag| flag.as_bool()) == Some(false))
+            .count();
+        if unresolved > 0 {
+            diagnostics.push((
+                "warn".to_string(),
+                format!("{unresolved} source material reference(s) cannot be resolved locally"),
+            ));
+        }
+    }
+
+    if let Some(examples) = metadata_array(value, "evaluation_examples") {
+        let placeholders = examples
+            .iter()
+            .filter_map(|entry| entry.as_str())
+            .filter(|item| item.to_ascii_lowercase().contains("pending validation"))
+            .count();
+        if placeholders > 0 {
+            diagnostics.push((
+                "warn".to_string(),
+                format!("{placeholders} evaluation example(s) still use placeholder text"),
+            ));
+        }
+    }
+
+    if let Some(outputs) = metadata_array(value, "outputs") {
+        let generic_outputs = outputs
+            .iter()
+            .filter_map(|entry| entry.as_str())
+            .filter(|item| item.eq_ignore_ascii_case("SKILL.md draft"))
+            .count();
+        if generic_outputs > 0 {
+            diagnostics.push((
+                "info".to_string(),
+                "outputs still look scaffold-level; add concrete artifacts if the workflow produces them"
+                    .to_string(),
+            ));
+        }
+    }
+
+    diagnostics
+}
+
 fn validate_project_skill_path(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
     let skill_root = resolve_project_skill_root(path)?;
     ensure_project_skill_files(&skill_root)?;
@@ -2939,6 +3035,63 @@ fn validate_project_skill_path(path: &Path) -> Result<String, Box<dyn std::error
         lines.push("  - no action required".to_string());
     } else {
         lines.push("Remediation".to_string());
+        for item in remediation {
+            lines.push(format!("  - {item}"));
+        }
+    }
+
+    Ok(lines.join("\n"))
+}
+
+fn doctor_project_skill(path: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    let skill_root = resolve_project_skill_root(path)?;
+    ensure_project_skill_files(&skill_root)?;
+    let value = read_project_skill_metadata(&skill_root)?;
+    validate_project_skill_metadata(&value)?;
+
+    let (warnings, remediation) = project_skill_warnings_and_remediation(&value, &skill_root);
+    let diagnostics = project_skill_doctor_diagnostics(&value);
+
+    let mut lines = vec![
+        "Project skill doctor".to_string(),
+        format!("  Skill root       {}", skill_root.display()),
+        format!(
+            "  Maturity         {}",
+            metadata_string(&value, "maturity_level").unwrap_or("unknown")
+        ),
+        format!(
+            "  Verification     {}",
+            metadata_string(&value, "verification_status").unwrap_or("unknown")
+        ),
+        format!(
+            "  Held-out         {}",
+            metadata_string(&value, "held_out_validation_status").unwrap_or("unknown")
+        ),
+        format!("  Diagnostics      {}", diagnostics.len()),
+    ];
+
+    lines.push("Findings".to_string());
+    if diagnostics.is_empty() {
+        lines.push("  - no additional non-blocking issues detected".to_string());
+    } else {
+        for (severity, message) in diagnostics {
+            lines.push(format!("  - [{severity}] {message}"));
+        }
+    }
+
+    lines.push("Warnings".to_string());
+    if warnings.is_empty() {
+        lines.push("  - none".to_string());
+    } else {
+        for warning in warnings {
+            lines.push(format!("  - {warning}"));
+        }
+    }
+
+    lines.push("Remediation".to_string());
+    if remediation.is_empty() {
+        lines.push("  - no action required".to_string());
+    } else {
         for item in remediation {
             lines.push(format!("  - {item}"));
         }
@@ -4797,7 +4950,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
         out,
         "  {cli_name} plugins [list|install <path>|enable <name>|disable <name>|uninstall <id>|update <id>]"
     )?;
-    writeln!(out, "  {cli_name} project-skill <init|validate|promote> [...]")?;
+    writeln!(out, "  {cli_name} project-skill <init|validate|promote|doctor> [...]")?;
     writeln!(out)?;
     writeln!(out, "Flags:")?;
     writeln!(
@@ -4868,6 +5021,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
         out,
         "  {cli_name} project-skill promote .claw/project-skills/survey-cleaning-sop --to project --held-out-validation passed"
     )?;
+    writeln!(
+        out,
+        "  {cli_name} project-skill doctor .claw/project-skills/survey-cleaning-sop"
+    )?;
     Ok(())
 }
 
@@ -4882,12 +5039,13 @@ mod tests {
         format_internal_prompt_progress_line, format_model_report, format_model_switch_report,
         format_permissions_report, format_permissions_switch_report, format_resume_report,
         format_status_report, format_tool_call_start, format_tool_result,
-        normalize_permission_mode, parse_args, parse_git_status_metadata, permission_policy,
-        print_help_to, push_output_block, render_config_report, render_memory_report,
-        render_repl_help, resolve_client_selection, resolve_model_alias, response_to_events,
-        resume_supported_slash_commands, status_context, validate_project_skill_path, CliAction,
-        CliOutputFormat, InitOptions, InitResearchProfile, InternalPromptProgressEvent,
-        InternalPromptProgressState, ProjectSkillCommand, SlashCommand, StatusUsage,
+        doctor_project_skill, normalize_permission_mode, parse_args, parse_git_status_metadata,
+        permission_policy, print_help_to, push_output_block, render_config_report,
+        render_memory_report, render_repl_help, resolve_client_selection, resolve_model_alias,
+        response_to_events, resume_supported_slash_commands, status_context,
+        validate_project_skill_path, CliAction, CliOutputFormat, InitOptions,
+        InitResearchProfile, InternalPromptProgressEvent, InternalPromptProgressState,
+        ProjectSkillCommand, SlashCommand, StatusUsage,
     };
     use api::{MessageResponse, OutputContentBlock, Usage};
     use plugins::{PluginTool, PluginToolDefinition, PluginToolPermission};
@@ -5372,6 +5530,23 @@ mod tests {
     }
 
     #[test]
+    fn parses_project_skill_doctor_subcommand() {
+        let args = vec![
+            "project-skill".to_string(),
+            "doctor".to_string(),
+            ".claw/project-skills/survey-cleaning-sop".to_string(),
+        ];
+        assert_eq!(
+            parse_args(&args).expect("project-skill doctor should parse"),
+            CliAction::ProjectSkill {
+                command: ProjectSkillCommand::Doctor {
+                    path: PathBuf::from(".claw/project-skills/survey-cleaning-sop"),
+                }
+            }
+        );
+    }
+
+    #[test]
     fn parses_project_skill_compatibility_targets() {
         let args = vec![
             "project-skill".to_string(),
@@ -5530,6 +5705,60 @@ mod tests {
         assert!(
             report.contains("promote after validation"),
             "validation report should include remediation guidance: {report}"
+        );
+
+        fs::remove_dir_all(&root).expect("temp skill root should clean up");
+    }
+
+    #[test]
+    fn doctor_project_skill_reports_non_blocking_findings() {
+        let root = temp_dir().join("skill-doctor-case");
+        fs::create_dir_all(&root).expect("temp skill root should be creatable");
+        fs::write(root.join("SKILL.md"), "# Draft Skill\n").expect("skill md should write");
+        fs::write(root.join("README.md"), "# Draft Skill\n").expect("readme should write");
+        fs::write(
+            root.join("skill.json"),
+            serde_json::to_string_pretty(&json!({
+                "name": "survey-cleaning-sop",
+                "title": "Survey Cleaning SOP",
+                "description": "Draft workflow",
+                "domain": "survey",
+                "generated_at": "2026-04-02T00:00:00Z",
+                "generated_by": "claw project-skill init",
+                "use_when": "Use before scoring",
+                "input_expectations": ["Approved questionnaire codebook"],
+                "workflow": ["Review questionnaire structure"],
+                "outputs": ["SKILL.md draft"],
+                "limits": ["Draft only"],
+                "failure_checks": ["Stop if required inputs are unclear"],
+                "evaluation_examples": [
+                    "Primary project example: pending validation",
+                    "Held-out example: pending validation"
+                ],
+                "verification_status": "drafted",
+                "held_out_validation_status": "pending",
+                "maturity_level": "draft",
+                "source_materials": [
+                    {"path": "missing-source.md", "exists": false, "sha256": serde_json::Value::Null}
+                ]
+            }))
+            .expect("json should serialize"),
+        )
+        .expect("skill json should write");
+
+        let report =
+            doctor_project_skill(&root).expect("doctor should report non-blocking findings");
+        assert!(
+            report.contains("Project skill doctor"),
+            "doctor report should contain header: {report}"
+        );
+        assert!(
+            report.contains("[warn] held-out validation is still pending"),
+            "doctor report should contain held-out warning: {report}"
+        );
+        assert!(
+            report.contains("outputs still look scaffold-level"),
+            "doctor report should flag generic outputs: {report}"
         );
 
         fs::remove_dir_all(&root).expect("temp skill root should clean up");

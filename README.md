@@ -130,12 +130,15 @@ cd rust
 
 ./target/debug/claw project-skill validate ./.claw/project-skills/survey-cleaning-sop
 
+./target/debug/claw project-skill doctor ./.claw/project-skills/survey-cleaning-sop
+
 ./target/debug/claw project-skill promote ./.claw/project-skills/survey-cleaning-sop \
   --to project \
   --held-out-validation passed
 ```
 
 `validate` 现在会补充 warning 和 remediation 建议，便于在 promotion 前做最后检查。
+`doctor` 适合看非阻断质量问题，比如 placeholder、泛化输出、未解析 source。
 
 详细说明：
 

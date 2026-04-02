@@ -57,6 +57,12 @@ survey_metadata
 
 这个校验现在会额外显示 warning 和 remediation 建议。
 
+进一步做非阻断诊断：
+
+```bash
+./target/debug/claw project-skill doctor ./.claw/project-skills/survey-cleaning-sop
+```
+
 提升成熟度：
 
 ```bash

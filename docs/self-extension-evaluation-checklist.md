@@ -127,9 +127,16 @@ cd rust
 
 ```bash
 ./target/debug/claw project-skill validate ./.claw/project-skills/<slug>
+./target/debug/claw project-skill doctor ./.claw/project-skills/<slug>
 ```
 
 现在 `validate` 会直接输出 warning 和 remediation 建议，适合在真正升档前先做最后一轮检查。
+
+`doctor` 更适合看非阻断问题，比如：
+
+- placeholder 还剩多少
+- 输出是不是还是模板级别
+- source 是否有 unresolved reference
 
 ### `project` -> `published`
 

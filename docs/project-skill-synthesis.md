@@ -66,6 +66,7 @@ Quick validation:
 ```bash
 cd rust
 ./target/debug/claw project-skill validate ./.claw/project-skills/survey-cleaning-sop
+./target/debug/claw project-skill doctor ./.claw/project-skills/survey-cleaning-sop
 ```
 
 `validate` 现在除了 pass/fail 之外，还会给出：
@@ -73,6 +74,13 @@ cd rust
 - 当前 maturity / verification / held-out 状态
 - warning 数量与具体 warning
 - 下一步 remediation 建议
+
+`doctor` 则更偏非阻断诊断，用来补充：
+
+- scaffold 痕迹是否还太重
+- source materials 是否有 unresolved reference
+- evaluation examples 是否还停留在 placeholder
+- outputs 是否还是过于泛化
 
 Promotion example:
 
