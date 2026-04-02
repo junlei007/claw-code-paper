@@ -731,11 +731,17 @@ fn translate_message(message: &InputMessage) -> Vec<Value> {
             if text.is_empty() && tool_calls.is_empty() {
                 Vec::new()
             } else {
-                vec![json!({
-                    "role": "assistant",
-                    "content": (!text.is_empty()).then_some(text),
-                    "tool_calls": tool_calls,
-                })]
+                let mut assistant = serde_json::Map::new();
+                assistant.insert("role".to_string(), json!("assistant"));
+                if !text.is_empty() {
+                    assistant.insert("content".to_string(), json!(text));
+                } else {
+                    assistant.insert("content".to_string(), Value::Null);
+                }
+                if !tool_calls.is_empty() {
+                    assistant.insert("tool_calls".to_string(), Value::Array(tool_calls));
+                }
+                vec![Value::Object(assistant)]
             }
         }
         _ => message
@@ -985,14 +991,15 @@ impl StringExt for String {
 mod tests {
     use super::{
         build_chat_completion_request, chat_completions_endpoint, normalize_finish_reason,
-        openai_tool_choice, parse_tool_arguments, OpenAiCompatClient, OpenAiCompatConfig,
+        openai_tool_choice, parse_tool_arguments, translate_message, OpenAiCompatClient,
+        OpenAiCompatConfig,
     };
     use crate::error::ApiError;
     use crate::types::{
         InputContentBlock, InputMessage, MessageRequest, ToolChoice, ToolDefinition,
         ToolResultContentBlock,
     };
-    use serde_json::json;
+    use serde_json::{json, Value};
     use std::sync::{Mutex, OnceLock};
 
     #[test]
@@ -1030,6 +1037,46 @@ mod tests {
         assert_eq!(payload["messages"][2]["role"], json!("tool"));
         assert_eq!(payload["tools"][0]["type"], json!("function"));
         assert_eq!(payload["tool_choice"], json!("auto"));
+    }
+
+    #[test]
+    fn text_only_assistant_messages_omit_empty_tool_calls() {
+        let translated = translate_message(&InputMessage {
+            role: "assistant".to_string(),
+            content: vec![InputContentBlock::Text {
+                text: "hello".to_string(),
+            }],
+        });
+
+        assert_eq!(translated.len(), 1);
+        assert_eq!(translated[0]["role"], json!("assistant"));
+        assert_eq!(translated[0]["content"], json!("hello"));
+        assert!(
+            translated[0].get("tool_calls").is_none(),
+            "text-only assistant messages should not serialize empty tool_calls: {}",
+            translated[0]
+        );
+    }
+
+    #[test]
+    fn assistant_tool_use_messages_keep_tool_calls() {
+        let translated = translate_message(&InputMessage {
+            role: "assistant".to_string(),
+            content: vec![InputContentBlock::ToolUse {
+                id: "call_1".to_string(),
+                name: "weather".to_string(),
+                input: json!({"city": "Paris"}),
+            }],
+        });
+
+        assert_eq!(translated.len(), 1);
+        assert_eq!(translated[0]["role"], json!("assistant"));
+        assert_eq!(translated[0]["content"], Value::Null);
+        assert_eq!(translated[0]["tool_calls"][0]["id"], json!("call_1"));
+        assert_eq!(
+            translated[0]["tool_calls"][0]["function"]["name"],
+            json!("weather")
+        );
     }
 
     #[test]
