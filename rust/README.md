@@ -32,6 +32,7 @@ survey_metadata
 
 详细输入/输出：
 
+- [`../docs/research-user-playbook.md`](../docs/research-user-playbook.md)
 - [`crates/plugins/bundled/research-survey/README.md`](crates/plugins/bundled/research-survey/README.md)
 
 ---
