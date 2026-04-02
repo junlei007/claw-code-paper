@@ -1,0 +1,109 @@
+<svg width="1400" height="760" viewBox="0 0 1400 760" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Research analysis workflow</title>
+  <desc id="desc">A workflow diagram showing the research analysis pipeline from dataset ingestion through metadata, scoring, psychometrics, and report generation.</desc>
+  <defs>
+    <linearGradient id="bg" x1="120" y1="60" x2="1280" y2="700" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FBFF"/>
+      <stop offset="1" stop-color="#EEF6FF"/>
+    </linearGradient>
+    <linearGradient id="ink" x1="168" y1="170" x2="1220" y2="630" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#1D4ED8"/>
+    </linearGradient>
+    <linearGradient id="pythonLane" x1="150" y1="268" x2="770" y2="520" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#ECFEFF"/>
+      <stop offset="1" stop-color="#E0F2FE"/>
+    </linearGradient>
+    <linearGradient id="rLane" x1="840" y1="268" x2="1240" y2="520" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#EFF6FF"/>
+      <stop offset="1" stop-color="#DBEAFE"/>
+    </linearGradient>
+    <filter id="cardShadow" x="94" y="122" width="1212" height="498" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#0F172A" flood-opacity="0.10"/>
+    </filter>
+    <marker id="arrow" markerWidth="14" markerHeight="14" refX="11" refY="7" orient="auto">
+      <path d="M1 1L11 7L1 13" stroke="#2563EB" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <rect width="1400" height="760" rx="32" fill="url(#bg)"/>
+  <rect x="72" y="52" width="1256" height="656" rx="28" fill="white" stroke="#D6E7FF" stroke-width="2"/>
+
+  <text x="120" y="114" fill="#0F172A" font-size="34" font-weight="700" font-family="Inter, Arial, sans-serif">科研分析工作流</text>
+  <text x="120" y="148" fill="#475569" font-size="20" font-family="Inter, Arial, sans-serif">从原始问卷数据到量表分数、心理测量结果与报告草稿的完整链路</text>
+
+  <g filter="url(#cardShadow)">
+    <rect x="120" y="170" width="1160" height="412" rx="28" fill="#F8FBFF" stroke="#DCEBFF" stroke-width="2"/>
+  </g>
+
+  <rect x="148" y="264" width="610" height="236" rx="24" fill="url(#pythonLane)" stroke="#99E9F2" stroke-width="2"/>
+  <rect x="788" y="264" width="464" height="236" rx="24" fill="url(#rLane)" stroke="#B7CCFF" stroke-width="2"/>
+
+  <text x="176" y="298" fill="#0F766E" font-size="18" font-weight="700" font-family="Inter, Arial, sans-serif">Python lane</text>
+  <text x="816" y="298" fill="#1D4ED8" font-size="18" font-weight="700" font-family="Inter, Arial, sans-serif">R lane</text>
+
+  <g>
+    <rect x="168" y="328" width="196" height="112" rx="22" fill="white" stroke="#BAE6FD" stroke-width="2"/>
+    <text x="192" y="360" fill="#0F172A" font-size="22" font-weight="700" font-family="Inter, Arial, sans-serif">输入数据</text>
+    <text x="192" y="390" fill="#475569" font-size="17" font-family="Inter, Arial, sans-serif">CSV / XLSX / SAV / DAT</text>
+    <text x="192" y="417" fill="#475569" font-size="17" font-family="Inter, Arial, sans-serif">量表定义 / reverseItems</text>
+  </g>
+
+  <g>
+    <rect x="408" y="328" width="172" height="112" rx="22" fill="white" stroke="#BAE6FD" stroke-width="2"/>
+    <text x="433" y="360" fill="#0F172A" font-size="22" font-weight="700" font-family="Inter, Arial, sans-serif">Metadata</text>
+    <text x="433" y="390" fill="#475569" font-size="17" font-family="Inter, Arial, sans-serif">字段 / 缺失 / 题项检查</text>
+    <text x="433" y="417" fill="#475569" font-size="17" font-family="Inter, Arial, sans-serif">格式识别与 schema</text>
+  </g>
+
+  <g>
+    <rect x="624" y="328" width="112" height="112" rx="22" fill="white" stroke="#99F6E4" stroke-width="2"/>
+    <text x="649" y="360" fill="#0F172A" font-size="22" font-weight="700" font-family="Inter, Arial, sans-serif">Score</text>
+    <text x="649" y="390" fill="#475569" font-size="17" font-family="Inter, Arial, sans-serif">反向计分</text>
+    <text x="649" y="417" fill="#475569" font-size="17" font-family="Inter, Arial, sans-serif">mean / sum</text>
+  </g>
+
+  <g>
+    <rect x="844" y="328" width="188" height="112" rx="22" fill="white" stroke="#C7D2FE" stroke-width="2"/>
+    <text x="872" y="360" fill="#0F172A" font-size="22" font-weight="700" font-family="Inter, Arial, sans-serif">Psychometrics</text>
+    <text x="872" y="390" fill="#475569" font-size="17" font-family="Inter, Arial, sans-serif">alpha / omega / KMO</text>
+    <text x="872" y="417" fill="#475569" font-size="17" font-family="Inter, Arial, sans-serif">Bartlett / validity</text>
+  </g>
+
+  <g>
+    <rect x="1072" y="328" width="152" height="112" rx="22" fill="white" stroke="#C7D2FE" stroke-width="2"/>
+    <text x="1110" y="360" fill="#0F172A" font-size="22" font-weight="700" font-family="Inter, Arial, sans-serif">CFA</text>
+    <text x="1097" y="390" fill="#475569" font-size="17" font-family="Inter, Arial, sans-serif">lavaan model</text>
+    <text x="1091" y="417" fill="#475569" font-size="17" font-family="Inter, Arial, sans-serif">fit indices / warnings</text>
+  </g>
+
+  <g>
+    <rect x="1090" y="532" width="170" height="116" rx="22" fill="#FFFFFF" stroke="#BFDBFE" stroke-width="2"/>
+    <text x="1120" y="566" fill="#0F172A" font-size="22" font-weight="700" font-family="Inter, Arial, sans-serif">Report</text>
+    <text x="1120" y="596" fill="#475569" font-size="17" font-family="Inter, Arial, sans-serif">Markdown 草稿</text>
+    <text x="1120" y="623" fill="#475569" font-size="17" font-family="Inter, Arial, sans-serif">Quarto / PDF 准备</text>
+  </g>
+
+  <path d="M364 384H408" stroke="#2563EB" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M580 384H624" stroke="#2563EB" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M736 384H844" stroke="#2563EB" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M1032 384H1072" stroke="#2563EB" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+  <path d="M1148 440V532" stroke="#2563EB" stroke-width="4" stroke-linecap="round" marker-end="url(#arrow)"/>
+
+  <g>
+    <rect x="168" y="534" width="420" height="112" rx="20" fill="#F8FAFC" stroke="#D6E7FF" stroke-width="2"/>
+    <text x="192" y="566" fill="#0F172A" font-size="20" font-weight="700" font-family="Inter, Arial, sans-serif">输入契约</text>
+    <text x="192" y="595" fill="#475569" font-size="16" font-family="Inter, Arial, sans-serif">scaleDefinitions / reverseItems / responseScale / outputPath</text>
+    <text x="192" y="621" fill="#475569" font-size="16" font-family="Inter, Arial, sans-serif">保持 Python 与 R 工具输入结构尽量一致，便于 agent 编排调用</text>
+  </g>
+
+  <g>
+    <rect x="620" y="534" width="426" height="112" rx="20" fill="#F8FAFC" stroke="#D6E7FF" stroke-width="2"/>
+    <text x="644" y="566" fill="#0F172A" font-size="20" font-weight="700" font-family="Inter, Arial, sans-serif">模型层</text>
+    <text x="644" y="595" fill="#475569" font-size="16" font-family="Inter, Arial, sans-serif">CLI / agent 使用 OpenAI-compatible provider profiles</text>
+    <text x="644" y="621" fill="#475569" font-size="16" font-family="Inter, Arial, sans-serif">可接 DeepSeek 等模型，但统计计算本身主要由 Python / R 完成</text>
+  </g>
+
+  <text x="168" y="214" fill="url(#ink)" font-size="20" font-weight="700" font-family="Inter, Arial, sans-serif">Bundled plugin: research-survey</text>
+  <text x="968" y="214" fill="#475569" font-size="17" font-family="Inter, Arial, sans-serif">Host runtime: Rust CLI + plugins + provider profiles</text>
+</svg>

@@ -1,0 +1,50 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Claw Code Paper research icon</title>
+  <desc id="desc">An original crab-inspired icon with a bar chart and spark, representing research data analysis.</desc>
+  <defs>
+    <linearGradient id="bg" x1="96" y1="76" x2="430" y2="430" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#123C73"/>
+    </linearGradient>
+    <linearGradient id="shell" x1="170" y1="150" x2="336" y2="330" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#14B8A6"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="190" y1="210" x2="322" y2="322" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F8FAFC"/>
+      <stop offset="1" stop-color="#BFDBFE"/>
+    </linearGradient>
+    <filter id="shadow" x="44" y="44" width="424" height="424" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#020617" flood-opacity="0.34"/>
+    </filter>
+  </defs>
+
+  <rect x="48" y="48" width="416" height="416" rx="112" fill="url(#bg)"/>
+
+  <g filter="url(#shadow)">
+    <path d="M134 210C102 190 83 159 80 123C116 127 147 144 168 172L184 194L134 210Z" fill="#38BDF8" fill-opacity="0.95"/>
+    <path d="M378 210C410 190 429 159 432 123C396 127 365 144 344 172L328 194L378 210Z" fill="#38BDF8" fill-opacity="0.95"/>
+
+    <path d="M144 308C122 308 104 291 104 268C104 245 122 228 144 228C166 228 184 245 184 268C184 291 166 308 144 308Z" fill="#0EA5E9" fill-opacity="0.18"/>
+    <path d="M368 308C346 308 328 291 328 268C328 245 346 228 368 228C390 228 408 245 408 268C408 291 390 308 368 308Z" fill="#0EA5E9" fill-opacity="0.18"/>
+
+    <path d="M208 146C175 166 152 200 146 239C141 276 153 313 180 338C196 353 216 362 236 366H276C296 362 316 353 332 338C359 313 371 276 366 239C360 200 337 166 304 146C289 137 273 132 256 132C239 132 223 137 208 146Z" fill="url(#shell)"/>
+
+    <path d="M213 384C200 384 190 374 190 361C190 348 200 338 213 338H299C312 338 322 348 322 361C322 374 312 384 299 384H213Z" fill="#0B1324" fill-opacity="0.35"/>
+
+    <path d="M156 300L126 334" stroke="#67E8F9" stroke-width="18" stroke-linecap="round"/>
+    <path d="M183 319L160 359" stroke="#67E8F9" stroke-width="18" stroke-linecap="round"/>
+    <path d="M356 300L386 334" stroke="#67E8F9" stroke-width="18" stroke-linecap="round"/>
+    <path d="M329 319L352 359" stroke="#67E8F9" stroke-width="18" stroke-linecap="round"/>
+
+    <circle cx="214" cy="224" r="10" fill="#083344"/>
+    <circle cx="298" cy="224" r="10" fill="#083344"/>
+
+    <rect x="194" y="192" width="124" height="112" rx="26" fill="#E0F2FE" fill-opacity="0.16" stroke="#BAE6FD" stroke-opacity="0.38" stroke-width="3"/>
+    <rect x="218" y="252" width="18" height="34" rx="6" fill="url(#accent)"/>
+    <rect x="247" y="232" width="18" height="54" rx="6" fill="url(#accent)"/>
+    <rect x="276" y="214" width="18" height="72" rx="6" fill="url(#accent)"/>
+
+    <path d="M320 162L328 178L344 186L328 194L320 210L312 194L296 186L312 178L320 162Z" fill="#FDE68A"/>
+  </g>
+</svg>

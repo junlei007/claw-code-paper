@@ -1,5 +1,9 @@
 # claw-code-paper
 
+<p align="center">
+  <img src="assets/claw-research-icon.svg" alt="claw-code-paper research icon" width="180" />
+</p>
+
 一个 **Rust-first 的科研数据分析智能体 CLI**。
 
 当前项目重点不是做通用代码助手，而是把 Claw/Claude Code 风格的 agent runtime，改造成更适合**问卷研究、量表分析、科研数据处理与分析报告生成**的工作台。
@@ -67,6 +71,24 @@
 - [`rust/crates/plugins/bundled/research-survey/README.md`](rust/crates/plugins/bundled/research-survey/README.md)
 
 ---
+
+
+## 科研分析工作流图
+
+<p align="center">
+  <img src="assets/research-workflow.svg" alt="research analysis workflow" width="1100" />
+</p>
+
+这张图对应当前主推链路：
+
+```text
+原始数据 -> survey_metadata -> survey_score -> survey_psychometrics -> survey_report
+```
+
+其中：
+- 前半段主要由 **Python** 负责数据读取、字段检查、反向计分与量表分数生成
+- 后半段主要由 **R** 负责 psychometrics 与 CFA
+- Rust CLI/runtime 负责统一编排、provider 配置、plugin 调用与 agent 入口
 
 ## 技术架构
 
