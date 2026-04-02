@@ -1,51 +1,47 @@
 <svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">Claw Code Paper owl research icon</title>
-  <desc id="desc">An original owl-inspired icon with research chart elements for the claw-code-paper project.</desc>
+  <title id="title">Claw Code Paper badge-style owl icon</title>
+  <desc id="desc">An original flat badge-style owl icon for the research analysis CLI.</desc>
   <defs>
-    <linearGradient id="bg" x1="72" y1="64" x2="432" y2="448" gradientUnits="userSpaceOnUse">
+    <linearGradient id="bg" x1="92" y1="76" x2="424" y2="436" gradientUnits="userSpaceOnUse">
       <stop stop-color="#0F172A"/>
-      <stop offset="1" stop-color="#1E3A8A"/>
+      <stop offset="1" stop-color="#1E40AF"/>
     </linearGradient>
-    <linearGradient id="owl" x1="154" y1="126" x2="348" y2="356" gradientUnits="userSpaceOnUse">
+    <linearGradient id="owl" x1="168" y1="136" x2="344" y2="360" gradientUnits="userSpaceOnUse">
       <stop stop-color="#22D3EE"/>
-      <stop offset="1" stop-color="#2DD4BF"/>
+      <stop offset="1" stop-color="#14B8A6"/>
     </linearGradient>
-    <linearGradient id="panel" x1="190" y1="222" x2="322" y2="322" gradientUnits="userSpaceOnUse">
+    <linearGradient id="chart" x1="208" y1="286" x2="304" y2="356" gradientUnits="userSpaceOnUse">
       <stop stop-color="#F8FAFC"/>
       <stop offset="1" stop-color="#DBEAFE"/>
     </linearGradient>
-    <filter id="shadow" x="76" y="82" width="360" height="356" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
-      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#020617" flood-opacity="0.3"/>
-    </filter>
   </defs>
 
-  <rect x="48" y="48" width="416" height="416" rx="112" fill="url(#bg)"/>
+  <rect x="48" y="48" width="416" height="416" rx="116" fill="url(#bg)"/>
+  <rect x="68" y="68" width="376" height="376" rx="98" stroke="#60A5FA" stroke-opacity="0.25" stroke-width="2"/>
 
-  <g filter="url(#shadow)">
-    <path d="M188 148L164 198C149 223 140 252 140 282C140 358 191 408 256 408C321 408 372 358 372 282C372 252 363 223 348 198L324 148L290 176H222L188 148Z" fill="url(#owl)"/>
+  <g>
+    <path d="M182 148L154 193C142 213 136 234 136 257V280C136 354 189 402 256 402C323 402 376 354 376 280V257C376 234 370 213 358 193L330 148L298 176H214L182 148Z" fill="url(#owl)"/>
+    <path d="M188 142L154 192L214 182L188 142Z" fill="#67E8F9"/>
+    <path d="M324 142L358 192L298 182L324 142Z" fill="#67E8F9"/>
 
-    <path d="M194 138L156 202L220 182L194 138Z" fill="#67E8F9"/>
-    <path d="M318 138L356 202L292 182L318 138Z" fill="#67E8F9"/>
+    <circle cx="208" cy="240" r="46" fill="#F8FAFC"/>
+    <circle cx="304" cy="240" r="46" fill="#F8FAFC"/>
+    <circle cx="208" cy="240" r="18" fill="#0F172A"/>
+    <circle cx="304" cy="240" r="18" fill="#0F172A"/>
+    <circle cx="214" cy="233" r="4.5" fill="#FFFFFF"/>
+    <circle cx="310" cy="233" r="4.5" fill="#FFFFFF"/>
 
-    <circle cx="208" cy="246" r="44" fill="#F8FAFC" fill-opacity="0.98"/>
-    <circle cx="304" cy="246" r="44" fill="#F8FAFC" fill-opacity="0.98"/>
-    <circle cx="208" cy="246" r="20" fill="#0F172A"/>
-    <circle cx="304" cy="246" r="20" fill="#0F172A"/>
-    <circle cx="214" cy="239" r="5" fill="#E0F2FE"/>
-    <circle cx="310" cy="239" r="5" fill="#E0F2FE"/>
+    <path d="M256 250L232 280H280L256 250Z" fill="#F59E0B"/>
+    <path d="M214 292C225 306 239 314 256 314C273 314 287 306 298 292" stroke="#0F766E" stroke-width="10" stroke-linecap="round"/>
 
-    <path d="M256 254L230 286H282L256 254Z" fill="#F59E0B"/>
+    <rect x="196" y="298" width="120" height="68" rx="20" fill="#0F172A" fill-opacity="0.14" stroke="#BAE6FD" stroke-opacity="0.45" stroke-width="2.5"/>
+    <rect x="220" y="332" width="16" height="16" rx="5" fill="url(#chart)"/>
+    <rect x="248" y="318" width="16" height="30" rx="5" fill="url(#chart)"/>
+    <rect x="276" y="304" width="16" height="44" rx="5" fill="url(#chart)"/>
 
-    <rect x="188" y="296" width="136" height="74" rx="22" fill="#E0F2FE" fill-opacity="0.16" stroke="#BAE6FD" stroke-width="3"/>
-    <rect x="214" y="334" width="18" height="20" rx="6" fill="url(#panel)"/>
-    <rect x="247" y="320" width="18" height="34" rx="6" fill="url(#panel)"/>
-    <rect x="280" y="306" width="18" height="48" rx="6" fill="url(#panel)"/>
+    <path d="M188 326L152 346" stroke="#67E8F9" stroke-width="14" stroke-linecap="round"/>
+    <path d="M324 326L360 346" stroke="#67E8F9" stroke-width="14" stroke-linecap="round"/>
 
-    <path d="M208 382L236 360L256 374L276 360L304 382" stroke="#99F6E4" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
-
-    <path d="M170 314L138 334" stroke="#67E8F9" stroke-width="16" stroke-linecap="round"/>
-    <path d="M342 314L374 334" stroke="#67E8F9" stroke-width="16" stroke-linecap="round"/>
-
-    <path d="M332 152L340 168L356 176L340 184L332 200L324 184L308 176L324 168L332 152Z" fill="#FDE68A"/>
+    <path d="M334 150L342 166L358 174L342 182L334 198L326 182L310 174L326 166L334 150Z" fill="#FDE68A"/>
   </g>
 </svg>
