@@ -24,6 +24,9 @@
    [`rust/README.md`](rust/README.md)
 3. survey 插件能力、tool contract、样例输入：
    [`rust/crates/plugins/bundled/research-survey/README.md`](rust/crates/plugins/bundled/research-survey/README.md)
+4. 科研方法总表、扩展路径与治理规范：
+   - [`docs/research-method-registry.md`](docs/research-method-registry.md)
+   - [`docs/research-method-standards.md`](docs/research-method-standards.md)
 
 最短上手路径：
 
@@ -41,6 +44,10 @@ cd rust
 ```text
 survey_metadata -> survey_score -> survey_psychometrics -> survey_report
 ```
+
+如果你关心：
+- **已经集成的方法怎么用**：看 [`docs/research-method-registry.md`](docs/research-method-registry.md)
+- **没有集成的方法应该怎么办**：先看 [`docs/research-method-standards.md`](docs/research-method-standards.md) 里的 skill / external plugin / bundled plugin 决策规则
 
 ---
 
@@ -94,6 +101,11 @@ survey_metadata -> survey_score -> survey_psychometrics -> survey_report
 当前最核心的领域插件文档在这里：
 
 - [`rust/crates/plugins/bundled/research-survey/README.md`](rust/crates/plugins/bundled/research-survey/README.md)
+
+科研方法清单与扩展治理规范在这里：
+
+- [`docs/research-method-registry.md`](docs/research-method-registry.md)
+- [`docs/research-method-standards.md`](docs/research-method-standards.md)
 
 ---
 

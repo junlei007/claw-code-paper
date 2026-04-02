@@ -33,6 +33,12 @@ claw init --research survey
 survey_metadata -> survey_score -> survey_psychometrics -> survey_report
 ```
 
+如果你要看：
+- 当前有哪些科研方法已经正式集成：
+  [`../../../../../docs/research-method-registry.md`](../../../../../docs/research-method-registry.md)
+- 某个新分析方法应该先做成 skill、外部插件还是内置插件：
+  [`../../../../../docs/research-method-standards.md`](../../../../../docs/research-method-standards.md)
+
 如果你是从插件开发/调试视角阅读本文，继续往下看各 tool 的输入输出和本地运行示例即可。
 
 ---
@@ -127,6 +133,11 @@ survey_metadata -> survey_score -> survey_psychometrics -> survey_report
 5. 再运行 `survey_score`
 6. 然后运行 `survey_psychometrics`
 7. 最后运行 `survey_report`
+
+如果你发现需要的方法不在当前四个 tool 里，不要直接把所有新方法塞进内置插件；先看：
+
+- [`../../../../../docs/research-method-registry.md`](../../../../../docs/research-method-registry.md)
+- [`../../../../../docs/research-method-standards.md`](../../../../../docs/research-method-standards.md)
 
 ### 为什么 `survey_score` 要放在前面
 

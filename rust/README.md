@@ -39,6 +39,12 @@ survey_metadata
 
 - [`crates/plugins/bundled/research-survey/README.md`](crates/plugins/bundled/research-survey/README.md)
 
+如果你要看：
+- 已经集成了哪些科研方法、标准链路怎么走：
+  [`../docs/research-method-registry.md`](../docs/research-method-registry.md)
+- 没有集成的方法应该做成 skill 还是 plugin：
+  [`../docs/research-method-standards.md`](../docs/research-method-standards.md)
+
 ---
 
 ## Workspace 定位
@@ -103,6 +109,8 @@ survey_metadata
 详细说明见：
 
 - [`crates/plugins/bundled/research-survey/README.md`](crates/plugins/bundled/research-survey/README.md)
+- [`../docs/research-method-registry.md`](../docs/research-method-registry.md)
+- [`../docs/research-method-standards.md`](../docs/research-method-standards.md)
 
 ---
 
