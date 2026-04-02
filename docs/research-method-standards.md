@@ -176,6 +176,8 @@ Researcher judgment remains final.
 
 This project should support **controlled self-extension**, not unconstrained self-mutation.
 
+Some of the agent-ergonomics rules below are adapted to this repo from Anthropic’s engineering post, ["Writing effective tools for agents — with agents"](https://www.anthropic.com/engineering/writing-tools-for-agents), published September 11, 2025.
+
 ### Proposed maturity levels for generated skills
 
 - `draft`
@@ -229,6 +231,38 @@ They must at least declare:
 - what they are for
 - what they do not cover
 - whether they were actually validated
+
+### Agent-oriented self-extension norms
+
+The self-extension loop should also follow a few **agent ergonomics** rules, adapted to our context from Anthropic’s September 11, 2025 post on writing tools for agents:
+
+1. **Add a few high-value skills/tools, not a flood of wrappers**
+   - do not auto-generate a new skill for every repeated prompt or every low-level API step
+   - prefer one skill for a complete research workflow over many overlapping micro-skills
+
+2. **Namespace by domain and intent**
+   - skill slugs and plugin/tool names should make their scope obvious
+   - prefer names that expose both research area and action, for example `survey-cleaning-sop` or `regression-ols`
+
+3. **Return high-signal context**
+   - generated skills should foreground the fields an agent can actually act on: inputs, workflow steps, outputs, warnings, limits
+   - avoid stuffing drafts with low-level or redundant material that increases context cost without improving execution
+
+4. **Support concise and detailed views**
+   - canonical drafts may keep rich metadata
+   - compatibility exports and runtime surfaces should expose the minimum context needed for the current step when possible
+
+5. **Prompt-engineer the contract, not just the prose**
+   - descriptions, parameter names, expected inputs, and warnings should be explicit enough that another agent can use the skill without hidden tribal knowledge
+   - ambiguous fields should be normalized before promotion beyond `draft`
+
+6. **Use evaluation before promotion**
+   - validate on realistic project tasks, not only toy prompts
+   - use at least one held-out example before promoting a generated skill from `draft` to `project` or beyond
+
+7. **Let agents help optimize, but do not let them self-certify**
+   - agents may propose refinements after reading transcripts, examples, and failures
+   - promotion still requires explicit validation evidence and human review of boundaries, warnings, and method fit
 
 ---
 

@@ -41,6 +41,9 @@ survey_metadata -> survey_score -> survey_psychometrics -> survey_report
 
 如果你是从插件开发/调试视角阅读本文，继续往下看各 tool 的输入输出和本地运行示例即可。
 
+如果你想先跑一条最小可运行案例，再回来看各 tool 细节，先看：
+- [`../../../../../docs/survey-minimal-walkthrough.md`](../../../../../docs/survey-minimal-walkthrough.md)
+
 ---
 
 ## 1. 适合什么任务

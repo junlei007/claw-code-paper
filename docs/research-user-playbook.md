@@ -46,6 +46,7 @@ cd rust
 
 接下来重点看：
 
+- [`./survey-minimal-walkthrough.md`](./survey-minimal-walkthrough.md)
 - [`../rust/README.md`](../rust/README.md)
 - [`../rust/crates/plugins/bundled/research-survey/README.md`](../rust/crates/plugins/bundled/research-survey/README.md)
 

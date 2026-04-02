@@ -6,6 +6,8 @@ It is the first implementation step of the “controlled self-extension” direc
 
 - [`./research-method-standards.md`](./research-method-standards.md)
 
+Recent agent-oriented wording in this document also draws on Anthropic’s engineering post, ["Writing effective tools for agents — with agents"](https://www.anthropic.com/engineering/writing-tools-for-agents), published September 11, 2025.
+
 ---
 
 ## Goal
@@ -171,6 +173,55 @@ Before broader reuse:
 2. fill in missing project details
 3. validate the workflow on a concrete example
 4. only then promote from `draft` to `project`
+
+---
+
+## Agent-oriented quality rules
+
+When skill drafts are synthesized from materials, the goal is not to create the largest possible registry. The goal is to create a **small number of agent-usable workflow contracts**.
+
+### Prefer fewer, clearer skills
+
+Do not create a new skill if the draft is only:
+
+- a thin wrapper around one low-level step
+- mostly duplicated with an existing skill
+- missing a real research workflow boundary
+
+Prefer one higher-signal skill for a complete SOP over many overlapping micro-skills.
+
+### Name skills so another agent can pick them correctly
+
+Use slugs and titles that expose both:
+
+- the research domain or method family
+- the concrete action or workflow
+
+Good patterns:
+
+- `survey-cleaning-sop`
+- `regression-diagnostics-checklist`
+- `interview-coding-consistency-review`
+
+### Optimize for usable context, not maximum detail
+
+The canonical draft can remain rich, but the top of the skill should make these items easy to recover:
+
+- what problem this skill solves
+- when to use it
+- what inputs it expects
+- what outputs/artifacts it should produce
+- what warnings or limits apply
+
+If a detail does not help the next agent act correctly, it should not dominate the draft.
+
+### Validate with realistic examples
+
+Before promoting a draft, test it on at least one realistic project example and ideally one held-out example that was not used as synthesis source material. This reduces the risk of polishing the skill around only its training materials.
+
+### Keep failure guidance explicit
+
+When the draft is incomplete or risky, say so directly. Prefer actionable warnings and missing-information checks over vague caveats.
 
 ---
 

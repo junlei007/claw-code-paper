@@ -113,6 +113,7 @@ survey_metadata -> survey_score -> survey_psychometrics -> survey_report
 详细说明：
 
 - [`rust/README.md`](rust/README.md)
+- [`docs/survey-minimal-walkthrough.md`](docs/survey-minimal-walkthrough.md)
 - [`rust/crates/plugins/bundled/research-survey/README.md`](rust/crates/plugins/bundled/research-survey/README.md)
 
 ### 路径 B：如果你手上已经有论文 / SOP / codebook，先生成 skill
