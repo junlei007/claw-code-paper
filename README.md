@@ -1,191 +1,352 @@
-# Rewriting Project Claw Code
+# claw-code-paper
 
-<p align="center">
-  <strong>⭐ The fastest repo in history to surpass 50K stars, reaching the milestone in just 2 hours after publication ⭐</strong>
-</p>
+一个 **Rust-first 的科研数据分析智能体 CLI**。
 
-<p align="center">
-  <a href="https://star-history.com/#instructkr/claw-code&Date">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=instructkr/claw-code&type=Date&theme=dark" />
-      <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=instructkr/claw-code&type=Date" />
-      <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=instructkr/claw-code&type=Date" width="600" />
-    </picture>
-  </a>
-</p>
+当前项目重点不是做通用代码助手，而是把 Claw/Claude Code 风格的 agent runtime，改造成更适合**问卷研究、量表分析、科研数据处理与分析报告生成**的工作台。
 
-<p align="center">
-  <img src="assets/clawd-hero.jpeg" alt="Claw" width="300" />
-</p>
-
-<p align="center">
-  <strong>Better Harness Tools, not merely storing the archive of leaked Claw Code</strong>
-</p>
-
-<p align="center">
-  <a href="https://github.com/sponsors/instructkr"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-pink?logo=github&style=for-the-badge" alt="Sponsor on GitHub" /></a>
-</p>
-
-> [!IMPORTANT]
-> **Rust port is now in progress** on the [`dev/rust`](https://github.com/instructkr/claw-code/tree/dev/rust) branch and is expected to be merged into main today. The Rust implementation aims to deliver a faster, memory-safe harness runtime. Stay tuned — this will be the definitive version of the project.
-
-> If you find this work useful, consider [sponsoring @instructkr on GitHub](https://github.com/sponsors/instructkr) to support continued open-source harness engineering research.
+当前优先方向：
+- 问卷 / 量表数据处理
+- 反向计分、均分/总分生成
+- 信度 / 效度预检查
+- CFA（验证性因子分析）
+- 分析结果整理与 Markdown 报告草稿生成
+- 支持 **DeepSeek / OpenAI-compatible** 等可替换模型后端
+- **CLI 先行，GUI 后续再加**
 
 ---
 
-## Backstory
+## 当前项目定位
 
-At 4 AM on March 31, 2026, I woke up to my phone blowing up with notifications. The Claw Code source had been exposed, and the entire dev community was in a frenzy. My girlfriend in Korea was genuinely worried I might face legal action from the original authors just for having the code on my machine — so I did what any engineer would do under pressure: I sat down, ported the core features to Python from scratch, and pushed it before the sun came up.
+这个仓库现在的目标可以概括成一句话：
 
-The whole thing was orchestrated end-to-end using [oh-my-codex (OmX)](https://github.com/Yeachan-Heo/oh-my-codex) by [@bellman_ych](https://x.com/bellman_ych) — a workflow layer built on top of OpenAI's Codex ([@OpenAIDevs](https://x.com/OpenAIDevs)). I used `$team` mode for parallel code review and `$ralph` mode for persistent execution loops with architect-level verification. The entire porting session — from reading the original harness structure to producing a working Python tree with tests — was driven through OmX orchestration.
+> 把一个通用 agent CLI 内核，改造成一个专门面向科研数据分析的智能体。
 
-The result is a clean-room Python rewrite that captures the architectural patterns of Claw Code's agent harness without copying any proprietary source. I'm now actively collaborating with [@bellman_ych](https://x.com/bellman_ych) — the creator of OmX himself — to push this further. The basic Python foundation is already in place and functional, but we're just getting started. **Stay tuned — a much more capable version is on the way.**
+它的策略不是重度 fork 内核然后一路深改，而是尽量：
 
-https://github.com/instructkr/claw-code
+- 用 Rust 保持核心运行时稳定
+- 减少与上游内核演进的强耦合
+- 把差异化能力集中在：
+  - research 配置
+  - prompts / skills
+  - bundled plugins
+  - Python + R 分析桥接
 
-![Tweet screenshot](assets/tweet-screenshot.png)
-
-## The Creators Featured in Wall Street Journal For Avid Claw Code Fans
-
-I've been deeply interested in **harness engineering** — studying how agent systems wire tools, orchestrate tasks, and manage runtime context. This isn't a sudden thing. The Wall Street Journal featured my work earlier this month, documenting how I've been one of the most active power users exploring these systems:
-
-> AI startup worker Sigrid Jin, who attended the Seoul dinner, single-handedly used 25 billion of Claw Code tokens last year. At the time, usage limits were looser, allowing early enthusiasts to reach tens of billions of tokens at a very low cost.
->
-> Despite his countless hours with Claw Code, Jin isn't faithful to any one AI lab. The tools available have different strengths and weaknesses, he said. Codex is better at reasoning, while Claw Code generates cleaner, more shareable code.
->
-> Jin flew to San Francisco in February for Claw Code's first birthday party, where attendees waited in line to compare notes with Cherny. The crowd included a practicing cardiologist from Belgium who had built an app to help patients navigate care, and a California lawyer who made a tool for automating building permit approvals using Claw Code.
->
-> "It was basically like a sharing party," Jin said. "There were lawyers, there were doctors, there were dentists. They did not have software engineering backgrounds."
->
-> — *The Wall Street Journal*, March 21, 2026, [*"The Trillion Dollar Race to Automate Our Entire Lives"*](https://lnkd.in/gs9td3qd)
-
-![WSJ Feature](assets/wsj-feature.png)
+这也是为什么目前我们最重要的领域能力，是 `research-survey` 这个内置插件，而不是去重写整套 runtime。
 
 ---
 
-## Porting Status
+## 当前已经具备的科研能力
 
-The main source tree is now Python-first.
+当前仓库已经具备一条比较清晰的科研分析链路：
 
-- `src/` contains the active Python porting workspace
-- `tests/` verifies the current Python workspace
-- the exposed snapshot is no longer part of the tracked repository state
+1. **数据读取与元数据检查**
+   - CSV
+   - Excel / `.xlsx`
+   - SPSS `.sav`
+   - `.dat`
 
-The current Python workspace is not yet a complete one-to-one replacement for the original system, but the primary implementation surface is now Python.
+2. **量表计分（Python）**
+   - 反向题处理
+   - 均分 / 总分
+   - `minValidItems` 控制
+   - 可导出打分后数据集
 
-## Why this rewrite exists
+3. **心理测量 / 统计分析（R）**
+   - Cronbach's alpha
+   - McDonald's omega
+   - KMO
+   - Bartlett
+   - 可选 CFA（lavaan）
 
-I originally studied the exposed codebase to understand its harness, tool wiring, and agent workflow. After spending more time with the legal and ethical questions—and after reading the essay linked below—I did not want the exposed snapshot itself to remain the main tracked source tree.
+4. **分析报告生成**
+   - Markdown 报告草稿
+   - 为后续 Quarto / PDF / Word 输出做准备
 
-This repository now focuses on Python porting work instead.
+当前最核心的领域插件文档在这里：
 
-## Repository Layout
+- [`rust/crates/plugins/bundled/research-survey/README.md`](rust/crates/plugins/bundled/research-survey/README.md)
+
+---
+
+## 技术架构
+
+### 1. Rust-first CLI 内核
+
+当前主开发面已经切到 Rust workspace：
+
+- `rust/`：当前主 CLI / runtime / plugins 工作区
+
+其中主要 crate 包括：
+- `claw-cli`：CLI 入口
+- `runtime`：运行时与配置加载
+- `plugins`：插件管理
+- `api`：模型提供方与 API 客户端
+- `tools` / `commands`：工具与命令编排
+- `server` / `lsp`：新增的服务与语言支持相关能力
+
+### 2. Python + R 双后端分析层
+
+科研分析能力目前采取双后端：
+
+- **Python**：数据读取、清洗、metadata、scoring、中间产物导出
+- **R**：psych / lavaan 这一类更贴近科研统计工作流的分析
+
+这样做的原因很直接：
+- Python 更适合工程集成和数据预处理
+- R 更适合心理测量与统计分析
+
+### 3. 可替换模型提供方
+
+当前不是只能用 Claude。
+
+项目已经支持 **OpenAI-compatible provider profiles**，因此可以接：
+- DeepSeek
+- 其他 OpenAI-compatible 网关 / 模型服务
+
+也就是说，模型层是可替换的，科研能力不应绑定在某一家模型厂商上。
+
+---
+
+## 仓库结构
 
 ```text
 .
-├── src/                                # Python porting workspace
-│   ├── __init__.py
-│   ├── commands.py
-│   ├── main.py
-│   ├── models.py
-│   ├── port_manifest.py
-│   ├── query_engine.py
-│   ├── task.py
-│   └── tools.py
-├── tests/                              # Python verification
-├── assets/omx/                         # OmX workflow screenshots
-├── 2026-03-09-is-legal-the-same-as-legitimate-ai-reimplementation-and-the-erosion-of-copyleft.md
+├── rust/                                   # 当前主开发面（Rust workspace）
+│   ├── Cargo.toml
+│   ├── crates/
+│   │   ├── claw-cli/
+│   │   ├── runtime/
+│   │   ├── plugins/
+│   │   ├── api/
+│   │   ├── tools/
+│   │   ├── commands/
+│   │   ├── lsp/
+│   │   └── server/
+│   └── docs/
+├── rust/crates/plugins/bundled/research-survey/   # 当前最重要的科研分析插件
+├── src/                                    # 早期 Python 面，现为历史/兼容参考面
+├── tests/                                  # Python 侧验证面
+├── CLAW.md                                 # 仓库内指令与工作约定
 └── README.md
 ```
 
-## Python Workspace Overview
+说明：
+- **现在的主线开发以 `rust/` 为主**
+- `src/` / `tests/` 仍保留，用于历史兼容、参考与部分验证面
+- 科研能力当前主要集中在 `rust/crates/plugins/bundled/research-survey/`
 
-The new Python `src/` tree currently provides:
+---
 
-- **`port_manifest.py`** — summarizes the current Python workspace structure
-- **`models.py`** — dataclasses for subsystems, modules, and backlog state
-- **`commands.py`** — Python-side command port metadata
-- **`tools.py`** — Python-side tool port metadata
-- **`query_engine.py`** — renders a Python porting summary from the active workspace
-- **`main.py`** — a CLI entrypoint for manifest and summary output
+## 快速开始
 
-## Quickstart
+### 1. 构建 CLI
 
-Render the Python porting summary:
+如果你的 `cargo` 在 PATH 里：
 
 ```bash
-python3 -m src.main summary
+cd rust
+cargo build -p claw-cli
 ```
 
-Print the current Python workspace manifest:
+如果你的环境和我这边一样，需要显式路径：
 
 ```bash
-python3 -m src.main manifest
+cd rust
+~/.cargo/bin/cargo build -p claw-cli
 ```
 
-List the current Python modules:
+### 2. 查看帮助
 
 ```bash
-python3 -m src.main subsystems --limit 16
+./target/debug/claw --help
 ```
 
-Run verification:
+### 3. 查看 agents / skills
 
 ```bash
-python3 -m unittest discover -s tests -v
+./target/debug/claw agents
+./target/debug/claw skills
 ```
 
-Run the parity audit against the local ignored archive (when present):
+### 4. 进入交互式 CLI
 
 ```bash
-python3 -m src.main parity-audit
+./target/debug/claw
 ```
 
-Inspect mirrored command/tool inventories:
+---
+
+## 配置科研分析模式
+
+推荐在项目根目录放一个本地配置文件：
+
+- `.claw/settings.local.json`
+
+示例：
+
+```json
+{
+  "model": "deepseek-chat",
+  "providers": {
+    "default": "deepseek",
+    "profiles": {
+      "deepseek": {
+        "type": "openai-compat",
+        "providerName": "DeepSeek",
+        "apiKeyEnv": "DEEPSEEK_API_KEY",
+        "baseUrl": "https://api.deepseek.com/v1",
+        "defaultModel": "deepseek-chat"
+      }
+    }
+  },
+  "research": {
+    "enabled": true,
+    "profile": "survey",
+    "artifactDir": ".claw/artifacts"
+  },
+  "plugins": {
+    "enabled": {
+      "research-survey@bundled": true
+    }
+  }
+}
+```
+
+然后在 shell 里配置 key：
 
 ```bash
-python3 -m src.main commands --limit 10
-python3 -m src.main tools --limit 10
+export DEEPSEEK_API_KEY=your_key_here
 ```
 
-## Current Parity Checkpoint
+再启动：
 
-The port now mirrors the archived root-entry file surface, top-level subsystem names, and command/tool inventories much more closely than before. However, it is **not yet** a full runtime-equivalent replacement for the original TypeScript system; the Python tree still contains fewer executable runtime slices than the archived source.
+```bash
+cd rust
+./target/debug/claw
+```
 
+---
 
-## Built with `oh-my-codex`
+## 当前科研插件：research-survey
 
-The restructuring and documentation work on this repository was AI-assisted and orchestrated with Yeachan Heo's [oh-my-codex (OmX)](https://github.com/Yeachan-Heo/oh-my-codex), layered on top of Codex.
+这是目前最关键的一层能力封装。
 
-- **`$team` mode:** used for coordinated parallel review and architectural feedback
-- **`$ralph` mode:** used for persistent execution, verification, and completion discipline
-- **Codex-driven workflow:** used to turn the main `src/` tree into a Python-first porting workspace
+### 已有工具
 
-### OmX workflow screenshots
+- `survey_metadata`
+  - 数据结构、缺失率、字段、题项覆盖检查
+- `survey_score`
+  - 反向计分、均分/总分生成、导出打分后数据
+- `survey_psychometrics`
+  - 信度、效度预检查、可选 CFA
+- `survey_report`
+  - Markdown 报告草稿输出
 
-![OmX workflow screenshot 1](assets/omx/omx-readme-review-1.png)
+### 推荐工作流
 
-*Ralph/team orchestration view while the README and essay context were being reviewed in terminal panes.*
+```text
+survey_metadata
+  -> survey_score
+  -> survey_psychometrics
+  -> survey_report
+```
 
-![OmX workflow screenshot 2](assets/omx/omx-readme-review-2.png)
+详细说明请看：
+- [`rust/crates/plugins/bundled/research-survey/README.md`](rust/crates/plugins/bundled/research-survey/README.md)
 
-*Split-pane review and verification flow during the final README wording pass.*
+---
 
-## Community
+## 本地直接体验科研能力
 
-<p align="center">
-  <a href="https://instruct.kr/"><img src="assets/instructkr.png" alt="instructkr" width="400" /></a>
-</p>
+即使暂时不接模型，也可以先直接体验插件工具。
 
-Join the [**instructkr Discord**](https://instruct.kr/) — the best Korean language model community. Come chat about LLMs, harness engineering, agent workflows, and everything in between.
+例如运行量表计分：
 
-[![Discord](https://img.shields.io/badge/Join%20Discord-instruct.kr-5865F2?logo=discord&style=for-the-badge)](https://instruct.kr/)
+```bash
+printf '%s' '{
+  "datasetPath": "rust/crates/plugins/bundled/research-survey/fixtures/mini_survey.csv",
+  "scaleDefinitions": [{
+    "name": "engagement",
+    "items": ["q1", "q2", "q3", "q4"],
+    "reverseItems": ["q3"],
+    "outputColumn": "engagement_mean",
+    "method": "mean",
+    "minValidItems": 3
+  }],
+  "reverseItems": ["q3"],
+  "responseScale": {"min": 1, "max": 5},
+  "idColumns": ["id"]
+}' | \
+env CLAW_TOOL_NAME=survey_score \
+    CLAW_PLUGIN_ID=research-survey@bundled \
+    CLAW_PLUGIN_ROOT=$(pwd)/rust/crates/plugins/bundled/research-survey \
+    CLAW_WORKSPACE_ROOT=$(pwd) \
+    python3 rust/crates/plugins/bundled/research-survey/tools/survey_tools.py
+```
 
-## Star History
+---
 
-See the chart at the top of this README.
+## 验证命令
 
-## Ownership / Affiliation Disclaimer
+Rust 工作区验证：
 
-- This repository does **not** claim ownership of the original Claw Code source material.
-- This repository is **not affiliated with, endorsed by, or maintained by the original authors**.
+```bash
+cd rust
+cargo fmt --all --check
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+插件侧最小验证：
+
+```bash
+python3 -m py_compile rust/crates/plugins/bundled/research-survey/tools/survey_tools.py
+python3 -m json.tool rust/crates/plugins/bundled/research-survey/.claw-plugin/plugin.json >/dev/null
+```
+
+---
+
+## 当前状态
+
+当前项目已经完成这些关键转向：
+
+- 采用 **Rust 内核** 作为主开发线
+- 将科研差异化能力集中到插件 / prompts / bridge 层
+- 接入 **OpenAI-compatible** provider profile 机制
+- 增加问卷分析插件 `research-survey`
+- 已具备 questionnaire scoring + psychometrics + report 的基础闭环
+
+这意味着项目已经不再只是一个“源码改写实验”，而是在逐步变成一个真正可用的**科研数据分析 agent CLI**。
+
+---
+
+## Roadmap
+
+下一阶段优先方向：
+
+1. 更完整的量表 scoring 模板库
+2. EFA / 因子提取与旋转
+3. 分组差异检验、回归、中介/调节分析
+4. 自动生成结果表格（如 APA 风格）
+5. Quarto / PDF / Word 输出
+6. CLI 稳定后补充 GUI
+
+---
+
+## Built with oh-my-codex
+
+这个项目的规划、迁移、验证与多轮重构工作，持续使用了 [oh-my-codex (OMX)](https://github.com/Yeachan-Heo/oh-my-codex) 的多智能体工作流能力来推进。
+
+在当前仓库中，OMX 主要被用于：
+- 规划与持续执行
+- 代码迁移与核对
+- 文档重构
+- 验证与收敛
+
+---
+
+## Disclaimer
+
+- 本仓库不是原始 Claw Code 官方仓库。
+- 本仓库当前方向是基于现有 agent/runtime 思路，发展出**科研数据分析专用工作流**。
+- 统计结果应由研究者人工复核，不应直接视为最终发表结论。
