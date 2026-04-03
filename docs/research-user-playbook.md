@@ -6,6 +6,10 @@
 2. 没有集成的分析方法怎么接进来？
 3. skill 和 plugin 到底分别用来做什么？
 
+另外还有一个默认前提：
+
+4. 如果我没给版式要求，系统默认按什么质量标准来出图表和文字？
+
 ---
 
 ## 先建立一个整体判断
@@ -44,9 +48,12 @@ cd rust
 
 这一步的作用是先把研究项目所需的基础配置和目录结构准备出来。
 
+如果你没有额外说明报告风格、图表规范或目标期刊，系统应该默认按一套**SSCI / 顶刊工作稿风格**来组织图表、表格和结果文字，而不是直接把原始 JSON 或调试输出丢给你。
+
 接下来重点看：
 
 - [`./survey-minimal-walkthrough.md`](./survey-minimal-walkthrough.md)
+- [`./research-output-style-guide.md`](./research-output-style-guide.md)
 - [`../rust/README.md`](../rust/README.md)
 - [`../rust/crates/plugins/bundled/research-survey/README.md`](../rust/crates/plugins/bundled/research-survey/README.md)
 
@@ -185,6 +192,7 @@ plugin 更像：
 
 - 当前项目能否跑通你的基础分析流程
 - 它的 artifact、报告、结构是否符合你的习惯
+- 它默认生成的图表、表格、结果表述是否已经接近你的论文写作标准
 
 ### 第二步：把你自己的方法知识沉淀成 skill
 
@@ -223,3 +231,19 @@ plugin 更像：
 - 对应 provider 的 API key
 
 如果 provider 没配置好，CLI 能编译成功，但实际调用模型时仍然会报认证错误。
+
+---
+
+## 如果你有自己的期刊 / 导师 / 实验室规范
+
+那就直接提供给 agent。
+
+推荐提供的内容包括：
+
+- 目标期刊名称
+- 既有论文中的表格/图片样例
+- caption / note 的写法偏好
+- 小数位、显著性、CI、标准化系数的展示规范
+- 中英文风格偏好
+
+系统默认会先遵守你的规范；如果你没有提供，再回退到项目默认的 house style。

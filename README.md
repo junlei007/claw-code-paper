@@ -28,6 +28,8 @@
   - 材料先沉淀成 skill，成熟方法再升级成 plugin，最终形成可复用能力资产
 - **Built for Chinese research workflows**
   - 已开始补中文/CJK 图表输出、研究文档沉淀、方法治理这些真实使用中的关键细节
+- **Presentation defaults that target paper-ready output**
+  - 默认按克制、清晰、可进入 SSCI / 顶刊工作稿的图表、表格、文本规范来组织结果；用户给出目标期刊或导师规范后再覆盖调整
 
 ---
 

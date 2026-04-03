@@ -7,6 +7,10 @@ It is intentionally framed as a **skill-first, R-first** capability:
 - **skill-first** because the unstable part is often the modeling contract, not only the computation
 - **R-first** because the default execution path for SEM, CFA, indirect effects, and measurement invariance is more mature in the `lavaan` ecosystem than in general-purpose Python workflows
 
+Default presentation baseline for outputs produced from this method family:
+
+- [`./research-output-style-guide.md`](./research-output-style-guide.md)
+
 ---
 
 ## What this method family covers
@@ -120,6 +124,13 @@ A reusable SEM workflow in this repo should typically report:
 - standardized structural path coefficients for SEM
 - indirect-effect estimates and confidence intervals when mediation is modeled
 - any identification, convergence, Heywood-case, or modification-index warnings that materially affect interpretation
+
+For user-facing delivery, these results should normally be shaped into:
+
+- a compact manuscript-friendly fit summary
+- a clean parameter summary table
+- a restrained SEM/CFA figure suitable for paper-draft refinement
+- prose that separates statistical result description from substantive interpretation
 
 ---
 

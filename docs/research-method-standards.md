@@ -8,6 +8,10 @@ Its purpose is to keep the system:
 - safe enough for real research workflows
 - stable without overloading the Rust core
 
+Companion default presentation baseline:
+
+- [`./research-output-style-guide.md`](./research-output-style-guide.md)
+
 ---
 
 ## 1. Core architecture rule
@@ -153,6 +157,10 @@ Every integrated research method should follow these norms:
 5. **Write structured artifacts**
    - avoid purely ephemeral analysis when a stable artifact is possible
 
+6. **Default to publication-grade presentation discipline**
+   - figures, tables, and user-facing narrative should follow the project default presentation guide unless the user supplies a more specific target style
+   - raw machine dumps should stay in artifacts or debug surfaces, not the main user-facing presentation
+
 ---
 
 ## 6. Interpretation boundary rule
@@ -169,6 +177,22 @@ The system must not:
 - hide warnings or failed assumptions
 
 Researcher judgment remains final.
+
+---
+
+## 6.5 Presentation default rule
+
+Unless a user provides a target journal, lab, or advisor-specific format, outputs should default to the house style defined in:
+
+- [`./research-output-style-guide.md`](./research-output-style-guide.md)
+
+This means:
+
+- figures should be restrained and manuscript-friendly
+- tables should be publication-oriented rather than raw-tool-oriented
+- narrative should read like a research assistant draft, not a JSON log
+
+If the user provides their own norm, that custom norm overrides the house style.
 
 ---
 
