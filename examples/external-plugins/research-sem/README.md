@@ -56,6 +56,23 @@ env CLAW_TOOL_NAME=sem_lavaan \
     Rscript examples/external-plugins/research-sem/tools/sem_tools.R
 ```
 
+Minimal invariance example:
+
+```bash
+printf '%s' '{
+  "datasetPath": "examples/external-plugins/research-sem/fixtures/sem_demo.csv",
+  "analysisType": "cfa",
+  "groupColumn": "group",
+  "measurementInvariance": true,
+  "modelSpec": "stress =~ stress1 + stress2 + stress3\ncoping =~ coping1 + coping2 + coping3\nburnout =~ burnout1 + burnout2 + burnout3"
+}' | \
+env CLAW_TOOL_NAME=sem_lavaan \
+    CLAW_PLUGIN_ID=research-sem@example \
+    CLAW_PLUGIN_ROOT=$(pwd)/examples/external-plugins/research-sem \
+    CLAW_WORKSPACE_ROOT=$(pwd) \
+    Rscript examples/external-plugins/research-sem/tools/sem_tools.R
+```
+
 Optional artifact write:
 
 ```json
@@ -69,7 +86,7 @@ Optional artifact write:
 ## Current limitations
 
 - CSV only
-- no automatic invariance sequence yet
+- measurement invariance currently only covers a simple configural / metric / scalar CFA sequence
 - no modification-index recommendation layer yet
 - no latent interaction / mixture / multilevel SEM support yet
 - no publication-grade table / figure formatter yet

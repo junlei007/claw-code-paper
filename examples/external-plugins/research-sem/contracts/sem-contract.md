@@ -32,6 +32,8 @@ The intended default execution backend is:
 Optional fields:
 
 - `groupColumn` for a multi-group fit
+- `measurementInvariance: true` to request a configural -> metric -> scalar invariance sequence for `analysisType = "cfa"`
+- `invarianceLevels` to restrict the sequence (for example `["configural", "metric"]`)
 - `delimiter` / `encoding` / `naValues` for CSV parsing overrides
 
 ## Output shape
@@ -41,6 +43,7 @@ The tool returns:
 - dataset metadata
 - model execution settings
 - fit diagnostics
+- optional measurement invariance sequence
 - standardized loadings
 - standardized structural paths
 - defined parameters (e.g. indirect effects)
@@ -67,6 +70,6 @@ This prototype is intentionally narrow:
 - CSV only
 - one generic `lavaan` execution surface
 - CFA / SEM fit summaries
+- measurement invariance is limited to a simple configural / metric / scalar CFA sequence
 - no automatic modification-index driven model revision
-- no automated measurement invariance sequence yet
 - no publication-grade table formatter yet

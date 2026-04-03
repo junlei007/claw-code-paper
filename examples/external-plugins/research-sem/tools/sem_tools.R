@@ -68,6 +68,20 @@ normalize_string_list <- function(value) {
   values[nzchar(values)]
 }
 
+normalize_bool <- function(value, default = FALSE) {
+  if (is.null(value) || length(value) == 0 || is.list(value)) {
+    return(default)
+  }
+  if (is.logical(value)) {
+    return(isTRUE(value[[1]]))
+  }
+  lowered <- tolower(trimws(as.character(value[[1]])))
+  if (!nzchar(lowered)) {
+    return(default)
+  }
+  lowered %in% c("true", "1", "yes", "y", "on")
+}
+
 clean_messages <- function(messages) {
   values <- as.character(unlist(messages, use.names = FALSE))
   values <- gsub("[[:space:]]+", " ", trimws(values))
@@ -195,6 +209,95 @@ count_complete_cases <- function(df, columns) {
   sum(stats::complete.cases(df[, columns, drop = FALSE]))
 }
 
+fit_measure_names <- c("chisq", "df", "pvalue", "cfi", "tli", "rmsea", "srmr", "aic", "bic")
+
+extract_fit_measures <- function(fit) {
+  capture <- evaluate_quietly(lavaan::fitMeasures(fit, fit_measure_names))
+  value <- capture$value
+  warnings <- prefix_messages("fitMeasures", capture$warnings)
+  if (inherits(value, "error")) {
+    return(list(result = NULL, warnings = c(warnings, sprintf("fit measures could not be extracted: %s", value$message))))
+  }
+  list(result = as.list(value), warnings = warnings)
+}
+
+run_invariance_sequence <- function(model_spec, fit_df, estimator, missing_handling, group_column, levels) {
+  level_map <- list(
+    configural = character(),
+    metric = c("loadings"),
+    scalar = c("loadings", "intercepts")
+  )
+
+  warnings <- character()
+  fits <- list()
+  previous_measures <- NULL
+
+  for (level_name in levels) {
+    fit_args <- list(
+      model = model_spec,
+      data = fit_df,
+      estimator = estimator,
+      missing = missing_handling,
+      std.lv = TRUE,
+      group = group_column
+    )
+    constraints <- level_map[[level_name]]
+    if (length(constraints)) {
+      fit_args$group.equal <- constraints
+    }
+
+    fit_capture <- evaluate_quietly(do.call(lavaan::cfa, fit_args))
+    fit <- fit_capture$value
+    warnings <- c(warnings, prefix_messages(sprintf("invariance %s", level_name), fit_capture$warnings))
+    if (inherits(fit, "error")) {
+      fits[[length(fits) + 1]] <- list(
+        level = level_name,
+        converged = FALSE,
+        constraints = if (length(constraints)) constraints else NULL,
+        fitMeasures = NULL,
+        deltasFromPrevious = NULL,
+        error = fit$message
+      )
+      break
+    }
+
+    converged_capture <- evaluate_quietly(lavaan::inspect(fit, "converged"))
+    warnings <- c(warnings, prefix_messages(sprintf("inspect %s", level_name), converged_capture$warnings))
+    converged <- converged_capture$value
+    if (inherits(converged, "error")) {
+      converged <- FALSE
+      warnings <- c(warnings, sprintf("inspect %s failed: %s", level_name, converged$message))
+    }
+
+    measures_info <- extract_fit_measures(fit)
+    warnings <- c(warnings, prefix_messages(sprintf("invariance %s", level_name), measures_info$warnings))
+    current_measures <- measures_info$result
+    deltas <- NULL
+    if (!is.null(previous_measures) && !is.null(current_measures)) {
+      deltas <- list(
+        cfi = unname(current_measures$cfi - previous_measures$cfi),
+        tli = unname(current_measures$tli - previous_measures$tli),
+        rmsea = unname(current_measures$rmsea - previous_measures$rmsea),
+        srmr = unname(current_measures$srmr - previous_measures$srmr),
+        chisq = unname(current_measures$chisq - previous_measures$chisq),
+        df = unname(current_measures$df - previous_measures$df)
+      )
+    }
+
+    fits[[length(fits) + 1]] <- list(
+      level = level_name,
+      converged = isTRUE(converged),
+      constraints = if (length(constraints)) constraints else NULL,
+      fitMeasures = current_measures,
+      deltasFromPrevious = deltas,
+      error = NULL
+    )
+    previous_measures <- current_measures
+  }
+
+  list(levels = fits, warnings = clean_messages(warnings))
+}
+
 dataset_path_input <- normalize_scalar(payload$datasetPath)
 if (is.null(dataset_path_input) || !nzchar(trimws(dataset_path_input))) {
   tool_error(plugin_id, tool_name, "missing_dataset_path", "datasetPath is required")
@@ -223,6 +326,21 @@ bootstrap <- suppressWarnings(as.integer(normalize_scalar(payload$bootstrap, 0))
 if (is.na(bootstrap) || bootstrap < 0) {
   tool_error(plugin_id, tool_name, "invalid_input", "bootstrap must be a non-negative integer")
 }
+measurement_invariance <- normalize_bool(payload$measurementInvariance, FALSE)
+invariance_levels <- tolower(normalize_string_list(payload$invarianceLevels))
+if (!length(invariance_levels)) {
+  invariance_levels <- c("configural", "metric", "scalar")
+}
+invalid_invariance_levels <- setdiff(invariance_levels, c("configural", "metric", "scalar"))
+if (length(invalid_invariance_levels)) {
+  tool_error(
+    plugin_id,
+    tool_name,
+    "invalid_input",
+    "invarianceLevels may only contain configural, metric, or scalar",
+    list(invalidLevels = invalid_invariance_levels)
+  )
+}
 
 warnings <- character()
 estimator <- normalize_scalar(payload$estimator)
@@ -233,8 +351,8 @@ missing_handling <- normalize_scalar(payload$missingHandling, "fiml")
 if (bootstrap > 0 && toupper(estimator) != "ML") {
   warnings <- c(warnings, sprintf("Bootstrap inference is usually paired with ML; continuing with estimator=%s as requested.", estimator))
 }
-if (!is.null(group_column) && nzchar(group_column)) {
-  warnings <- c(warnings, "groupColumn was provided; this prototype fits a multi-group model but does not run an automatic measurement invariance sequence.")
+if (!is.null(group_column) && nzchar(group_column) && !measurement_invariance) {
+  warnings <- c(warnings, "groupColumn was provided; no measurement invariance sequence was requested, so the plugin only fit the requested grouped model.")
 }
 
 dataset <- read_dataset(dataset_path, delimiter, encoding, na_values)
@@ -289,7 +407,7 @@ if (inherits(fit, "error")) {
   tool_error(plugin_id, tool_name, "fit_failed", sprintf("%s fit failed: %s", toupper(analysis_type), fit$message), list(analysisType = analysis_type))
 }
 
-fit_measures_capture <- evaluate_quietly(lavaan::fitMeasures(fit, c("chisq", "df", "pvalue", "cfi", "tli", "rmsea", "srmr", "aic", "bic")))
+fit_measures_capture <- evaluate_quietly(lavaan::fitMeasures(fit, fit_measure_names))
 param_capture <- evaluate_quietly(lavaan::parameterEstimates(fit, standardized = TRUE, ci = TRUE))
 inspect_capture <- evaluate_quietly(lavaan::inspect(fit, "converged"))
 warnings <- c(
@@ -332,6 +450,31 @@ if (!is.null(group_column) && nzchar(group_column)) {
   }))
 }
 
+measurement_invariance_result <- NULL
+if (measurement_invariance) {
+  if (is.null(group_column) || !nzchar(group_column)) {
+    warnings <- c(warnings, "measurementInvariance was requested but groupColumn is missing; invariance sequence was skipped.")
+  } else if (analysis_type != "cfa") {
+    warnings <- c(warnings, "measurementInvariance was requested for analysisType=sem; this prototype only runs invariance for CFA models, so the sequence was skipped.")
+  } else if (length(unique(stats::na.omit(fit_df[[group_column]]))) < 2) {
+    warnings <- c(warnings, "measurementInvariance was requested but fewer than two non-missing groups were available; invariance sequence was skipped.")
+  } else {
+    invariance_info <- run_invariance_sequence(
+      model_spec = model_spec,
+      fit_df = fit_df,
+      estimator = estimator,
+      missing_handling = missing_handling,
+      group_column = group_column,
+      levels = invariance_levels
+    )
+    measurement_invariance_result <- list(
+      requestedLevels = invariance_levels,
+      sequence = invariance_info$levels
+    )
+    warnings <- c(warnings, invariance_info$warnings)
+  }
+}
+
 result <- list(
   plugin = plugin_id,
   tool = tool_name,
@@ -350,6 +493,7 @@ result <- list(
     missingHandling = missing_handling,
     bootstrap = bootstrap,
     groupColumn = if (!is.null(group_column) && nzchar(group_column)) group_column else NULL,
+    measurementInvariance = if (measurement_invariance) measurement_invariance_result else NULL,
     converged = isTRUE(converged),
     fitMeasures = if (!is.null(fit_measures)) as.list(fit_measures) else NULL,
     groups = group_summary
