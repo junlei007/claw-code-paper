@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::args::{OutputFormat, PermissionMode};
 use crate::input::{LineEditor, ReadOutcome};
-use crate::render::{Spinner, TerminalRenderer};
+use crate::render::{Spinner, TerminalRenderer, ThemeKind};
 use runtime::{ConversationClient, ConversationMessage, RuntimeError, StreamEvent, UsageSummary};
 use serde_json::Value;
 
@@ -104,7 +104,7 @@ impl CliApp {
         let conversation_client = ConversationClient::from_env(config.model.clone())?;
         Ok(Self {
             config,
-            renderer: TerminalRenderer::new(),
+            renderer: TerminalRenderer::with_theme(ThemeKind::default()),
             state,
             conversation_client,
             conversation_history: Vec::new(),
@@ -113,8 +113,8 @@ impl CliApp {
 
     pub fn run_repl(&mut self) -> io::Result<()> {
         let mut editor = LineEditor::new("› ", Vec::new());
-        println!("Claw Code interactive mode");
-        println!("Type /help for commands. Shift+Enter or Ctrl+J inserts a newline.");
+        self.renderer
+            .stream_markdown(&format_repl_banner(), &mut io::stdout())?;
 
         loop {
             match editor.read_line()? {
@@ -156,49 +156,37 @@ impl CliApp {
         out: &mut impl Write,
     ) -> io::Result<CommandResult> {
         match command {
-            SlashCommand::Help => Self::handle_help(out),
+            SlashCommand::Help => self.handle_help(out),
             SlashCommand::Status => self.handle_status(out),
             SlashCommand::Compact => self.handle_compact(out),
             SlashCommand::Unknown(name) => {
-                writeln!(out, "Unknown slash command: /{name}")?;
+                self.renderer.stream_markdown(
+                    &format!(
+                        "### Unknown command\n\n> `/{}` is not available in this session.\n\nUse `/help` to see the supported commands.\n",
+                        name
+                    ),
+                    out,
+                )?;
                 Ok(CommandResult::Continue)
             }
             _ => {
-                writeln!(out, "Slash command unavailable in this mode")?;
+                self.renderer.stream_markdown(
+                    "### Command unavailable\n\n> This slash command is not available in the current mode.\n",
+                    out,
+                )?;
                 Ok(CommandResult::Continue)
             }
         }
     }
 
-    fn handle_help(out: &mut impl Write) -> io::Result<CommandResult> {
-        writeln!(out, "Available commands:")?;
-        for handler in SLASH_COMMAND_HANDLERS {
-            let name = match handler.command {
-                SlashCommand::Help => "/help",
-                SlashCommand::Status => "/status",
-                SlashCommand::Compact => "/compact",
-                _ => continue,
-            };
-            writeln!(out, "  {name:<9} {}", handler.summary)?;
-        }
+    fn handle_help(&self, out: &mut impl Write) -> io::Result<CommandResult> {
+        self.renderer.stream_markdown(&format_help_markdown(), out)?;
         Ok(CommandResult::Continue)
     }
 
     fn handle_status(&mut self, out: &mut impl Write) -> io::Result<CommandResult> {
-        writeln!(
-            out,
-            "status: turns={} model={} permission-mode={:?} output-format={:?} last-usage={} in/{} out config={}",
-            self.state.turns,
-            self.state.last_model,
-            self.config.permission_mode,
-            self.config.output_format,
-            self.state.last_usage.input_tokens,
-            self.state.last_usage.output_tokens,
-            self.config
-                .config
-                .as_ref()
-                .map_or_else(|| String::from("<none>"), |path| path.display().to_string())
-        )?;
+        self.renderer
+            .stream_markdown(&format_status_markdown(&self.config, &self.state), out)?;
         Ok(CommandResult::Continue)
     }
 
@@ -206,10 +194,9 @@ impl CliApp {
         self.state.compacted_messages += self.state.turns;
         self.state.turns = 0;
         self.conversation_history.clear();
-        writeln!(
+        self.renderer.stream_markdown(
+            &format_compact_markdown(self.state.compacted_messages),
             out,
-            "Compacted session history into a local summary ({} messages total compacted).",
-            self.state.compacted_messages
         )?;
         Ok(CommandResult::Continue)
     }
@@ -253,9 +240,16 @@ impl CliApp {
                 } else {
                     format!("Tool `{name}` completed")
                 };
-                let _ = tool_spinner.finish(&label, renderer.color_theme(), out);
-                let rendered_output =
-                    format!("### Tool `{name}`\n\n{}\n", format_tool_result_preview(&name, &output, is_error));
+                let _ = if is_error {
+                    tool_spinner.fail(&label, renderer.color_theme(), out)
+                } else {
+                    tool_spinner.finish(&label, renderer.color_theme(), out)
+                };
+                let status_label = if is_error { "failed" } else { "completed" };
+                let rendered_output = format!(
+                    "### Tool `{name}`\n\n> Status: **{status_label}**\n\n{}\n",
+                    format_tool_result_preview(&name, &output, is_error)
+                );
                 let _ = renderer.stream_markdown(&rendered_output, out);
             }
             StreamEvent::Usage(usage) => {
@@ -359,6 +353,10 @@ impl CliApp {
     }
 }
 
+fn format_repl_banner() -> String {
+    "## Claw Code interactive mode\n\n> `/help` shows the command surface.\n\n- `Shift+Enter` or `Ctrl+J` inserts a newline\n- Vim-style input modes are shown inline when enabled\n".to_string()
+}
+
 fn summarize_tool_input(name: &str, input: &str) -> String {
     let parsed = serde_json::from_str::<Value>(input).unwrap_or(Value::String(input.to_string()));
     match name {
@@ -395,9 +393,58 @@ fn summarize_tool_input(name: &str, input: &str) -> String {
     }
 }
 
+fn format_help_markdown() -> String {
+    let mut lines = vec![
+        "## CLI commands".to_string(),
+        "".to_string(),
+        "Use these built-in commands while staying in the same session:".to_string(),
+        "".to_string(),
+    ];
+    for handler in SLASH_COMMAND_HANDLERS {
+        let name = match handler.command {
+            SlashCommand::Help => "/help",
+            SlashCommand::Status => "/status",
+            SlashCommand::Compact => "/compact",
+            _ => continue,
+        };
+        lines.push(format!("- `{name}` — {}", handler.summary));
+    }
+    lines.push("".to_string());
+    lines.push("> Tip: use Shift+Enter or Ctrl+J to insert a newline without sending.".to_string());
+    lines.join("\n")
+}
+
+fn format_status_markdown(config: &SessionConfig, state: &SessionState) -> String {
+    let config_path = config
+        .config
+        .as_ref()
+        .map_or_else(|| String::from("<none>"), |path| path.display().to_string());
+    format!(
+        "## Session status\n\n| Field | Value |\n| --- | --- |\n| Turns in memory | {} |\n| Compacted messages | {} |\n| Model | `{}` |\n| Permission mode | `{:?}` |\n| Output format | `{:?}` |\n| Last usage | `{} in / {} out` |\n| Config path | `{}` |\n",
+        state.turns,
+        state.compacted_messages,
+        state.last_model,
+        config.permission_mode,
+        config.output_format,
+        state.last_usage.input_tokens,
+        state.last_usage.output_tokens,
+        config_path
+    )
+}
+
+fn format_compact_markdown(compacted_messages: usize) -> String {
+    format!(
+        "## Session compacted\n\n> Local conversation history was folded into a summary.\n\n- Total compacted messages: **{}**\n- Active in-memory turns reset to **0**\n",
+        compacted_messages
+    )
+}
+
 fn format_tool_result_preview(name: &str, output: &str, is_error: bool) -> String {
     if is_error {
-        return format!("```text\n{}\n```", truncate_block(output, 16, 1200));
+        return format!(
+            "#### Error output\n\n```text\n{}\n```",
+            truncate_block(output, 16, 1200)
+        );
     }
 
     let parsed = serde_json::from_str::<Value>(output).unwrap_or(Value::String(output.to_string()));
@@ -611,7 +658,8 @@ mod tests {
     use crate::args::{OutputFormat, PermissionMode};
 
     use super::{
-        format_tool_result_preview, summarize_tool_input, CommandResult, SessionConfig,
+        format_compact_markdown, format_help_markdown, format_repl_banner, format_status_markdown,
+        format_tool_result_preview, summarize_tool_input, SessionConfig, SessionState,
         SlashCommand,
     };
 
@@ -627,13 +675,53 @@ mod tests {
 
     #[test]
     fn help_output_lists_commands() {
-        let mut out = Vec::new();
-        let result = super::CliApp::handle_help(&mut out).expect("help succeeds");
-        assert_eq!(result, CommandResult::Continue);
-        let output = String::from_utf8_lossy(&out);
+        let output = format_help_markdown();
         assert!(output.contains("/help"));
         assert!(output.contains("/status"));
         assert!(output.contains("/compact"));
+    }
+
+    #[test]
+    fn status_markdown_renders_key_session_fields() {
+        let config = SessionConfig {
+            model: "kimi-k2.5".into(),
+            permission_mode: PermissionMode::WorkspaceWrite,
+            config: Some(PathBuf::from("settings.toml")),
+            output_format: OutputFormat::Text,
+        };
+        let state = SessionState {
+            turns: 3,
+            compacted_messages: 5,
+            last_model: "kimi-k2.5".into(),
+            last_usage: runtime::UsageSummary {
+                input_tokens: 123,
+                output_tokens: 456,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+            },
+        };
+
+        let output = format_status_markdown(&config, &state);
+        assert!(output.contains("## Session status"));
+        assert!(output.contains("kimi-k2.5"));
+        assert!(output.contains("WorkspaceWrite"));
+        assert!(output.contains("123 in / 456 out"));
+    }
+
+    #[test]
+    fn compact_markdown_mentions_reset() {
+        let output = format_compact_markdown(9);
+        assert!(output.contains("Session compacted"));
+        assert!(output.contains("9"));
+        assert!(output.contains("reset to **0**"));
+    }
+
+    #[test]
+    fn repl_banner_mentions_help_and_multiline() {
+        let output = format_repl_banner();
+        assert!(output.contains("interactive mode"));
+        assert!(output.contains("/help"));
+        assert!(output.contains("Shift+Enter"));
     }
 
     #[test]
@@ -668,5 +756,12 @@ mod tests {
         );
         assert!(preview.contains("Updated todos (1 → 2)"));
         assert!(!preview.contains("\"oldTodos\""));
+    }
+
+    #[test]
+    fn tool_error_preview_is_rendered_as_error_block() {
+        let preview = format_tool_result_preview("Bash", "permission denied", true);
+        assert!(preview.contains("#### Error output"));
+        assert!(preview.contains("permission denied"));
     }
 }

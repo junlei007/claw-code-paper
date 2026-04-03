@@ -29,7 +29,7 @@ use commands::{
 use compat_harness::{extract_manifest, UpstreamPaths};
 use init::{initialize_repo, InitOptions, InitResearchProfile};
 use plugins::{PluginManager, PluginManagerConfig};
-use render::{MarkdownStreamState, Spinner, TerminalRenderer};
+use render::{MarkdownStreamState, Spinner, TerminalRenderer, ThemeKind};
 use runtime::{
     clear_oauth_credentials, generate_pkce_pair, generate_state, load_system_prompt,
     parse_oauth_callback_request_target, save_oauth_credentials, ApiClient, ApiRequest,
@@ -81,6 +81,14 @@ fn current_cli_name() -> String {
         })
         .filter(|value| matches!(value.as_str(), "claw" | "paperowl"))
         .unwrap_or_else(|| "claw".to_string())
+}
+
+fn current_theme_kind() -> ThemeKind {
+    env::var("CLAW_THEME")
+        .ok()
+        .as_deref()
+        .and_then(ThemeKind::parse)
+        .unwrap_or_default()
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -1125,6 +1133,28 @@ Usage
     )
 }
 
+fn format_theme_report(current: ThemeKind, previous: Option<ThemeKind>) -> String {
+    let body = match previous {
+        Some(previous) if previous != current => format!(
+            "Theme
+  Previous         {}
+  Current          {}
+  Available        dark, light
+  Hint             Use /theme toggle for a quick switch",
+            previous.as_str(),
+            current.as_str()
+        ),
+        _ => format!(
+            "Theme
+  Current          {}
+  Available        dark, light
+  Hint             Use /theme dark, /theme light, or /theme toggle",
+            current.as_str()
+        ),
+    };
+    format_section_card("Theme", &body, current, false)
+}
+
 fn format_provider_report(
     current_provider: Option<&str>,
     current_model: &str,
@@ -1400,6 +1430,7 @@ fn run_resume_command(
                         estimated_tokens: 0,
                     },
                     default_permission_mode().as_str(),
+                    current_theme_kind(),
                     &status_context(Some(session_path))?,
                 )),
             })
@@ -1471,6 +1502,7 @@ fn run_resume_command(
         | SlashCommand::Model { .. }
         | SlashCommand::Provider { .. }
         | SlashCommand::Permissions { .. }
+        | SlashCommand::Theme { .. }
         | SlashCommand::Session { .. }
         | SlashCommand::Plugins { .. }
         | SlashCommand::Unknown(_) => Err("unsupported resumed slash command".into()),
@@ -1484,7 +1516,9 @@ fn run_repl(
     permission_mode: PermissionMode,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut cli = LiveCli::new(model, provider, true, allowed_tools, permission_mode)?;
-    let mut editor = input::LineEditor::new("> ", slash_command_completion_candidates());
+    let mut editor =
+        input::LineEditor::with_completion_candidates("> ", slash_command_completion_candidates());
+    editor.set_theme(cli.theme_kind());
     println!("{}", cli.startup_banner());
 
     loop {
@@ -1502,6 +1536,7 @@ fn run_repl(
                     if cli.handle_repl_command(command)? {
                         cli.persist_session()?;
                     }
+                    editor.set_theme(cli.theme_kind());
                     continue;
                 }
                 editor.push_history(input);
@@ -1532,9 +1567,7 @@ fn request_failure_hint(error: &str) -> Option<&'static str> {
         );
     }
     if lower.contains("missing") && lower.contains("credentials") {
-        return Some(
-            "hint: 先检查 /provider 当前 profile，以及对应 API key 环境变量是否已导出。",
-        );
+        return Some("hint: 先检查 /provider 当前 profile，以及对应 API key 环境变量是否已导出。");
     }
     None
 }
@@ -1631,12 +1664,14 @@ struct ManagedSessionSummary {
 struct LiveCli {
     model: String,
     provider: Option<String>,
+    theme_kind: ThemeKind,
     allowed_tools: Option<AllowedToolSet>,
     permission_mode: PermissionMode,
     system_prompt: Vec<String>,
     runtime_config: RuntimeConfig,
     feature_config: RuntimeFeatureConfig,
     tool_registry: GlobalToolRegistry,
+    renderer: TerminalRenderer,
     runtime: ConversationRuntime<DefaultRuntimeClient, CliToolExecutor>,
     session: SessionHandle,
 }
@@ -1653,6 +1688,8 @@ impl LiveCli {
         let session = create_managed_session_handle()?;
         let (runtime_config, feature_config, tool_registry) = build_runtime_plugin_state()?;
         let selection = resolve_client_selection(&runtime_config, model, provider)?;
+        let theme_kind = current_theme_kind();
+        let renderer = TerminalRenderer::with_theme(theme_kind);
         let runtime = build_runtime(
             Session::new(),
             selection.clone(),
@@ -1661,6 +1698,7 @@ impl LiveCli {
             true,
             allowed_tools.clone(),
             permission_mode,
+            theme_kind,
             None,
             feature_config.clone(),
             tool_registry.clone(),
@@ -1668,12 +1706,14 @@ impl LiveCli {
         let cli = Self {
             model: selection.model,
             provider: selection.provider_id,
+            theme_kind,
             allowed_tools,
             permission_mode,
             system_prompt,
             runtime_config,
             feature_config,
             tool_registry,
+            renderer,
             runtime,
             session,
         };
@@ -1690,20 +1730,34 @@ impl LiveCli {
             .provider
             .as_deref()
             .map_or_else(|| "auto".to_string(), ToOwned::to_owned);
+        let owl_color = match self.theme_kind {
+            ThemeKind::Dark => "\x1b[38;2;250;179;135m",
+            ThemeKind::Light => "\x1b[38;2;180;83;9m",
+        };
+        let muted = match self.theme_kind {
+            ThemeKind::Dark => "\x1b[2m",
+            ThemeKind::Light => "\x1b[38;2;100;116;139m",
+        };
         format!(
-            "\x1b[38;5;173m▖▘  ▝▗\x1b[0m     \x1b[1mOwl CLI v{VERSION}\x1b[0m\n\
-\x1b[38;5;173m▗▝▖▗▝▗\x1b[0m     \x1b[2m{} · {}\x1b[0m\n\
-\x1b[38;5;173m▗ ▝▘ ▗\x1b[0m     \x1b[2m{}\x1b[0m\n\
-\x1b[38;5;173m▝▗    ▖▘\x1b[0m   \x1b[2mPermissions\x1b[0m  {}\n\
-\x1b[38;5;173m ▝▖▗▖▘\x1b[0m     \x1b[2mSession\x1b[0m      {}\n\
-\x1b[38;5;173m━━▝▘▝▘━━\x1b[0m   \x1b[2mWorkflow\x1b[0m     metadata → scoring → psychometrics → report\n\n\
-  Type \x1b[1m/help\x1b[0m for commands · \x1b[2mShift+Enter\x1b[0m for newline",
+            "{owl_color}▖▘  ▝▗\x1b[0m     \x1b[1mOwl CLI v{VERSION}\x1b[0m\n\
+{owl_color}▗▝▖▗▝▗\x1b[0m     {muted}{} · {} · theme {}\x1b[0m\n\
+{owl_color}▗ ▝▘ ▗\x1b[0m     {muted}{}\x1b[0m\n\
+{owl_color}▝▗    ▖▘\x1b[0m   {muted}Permissions\x1b[0m  {}\n\
+{owl_color} ▝▖▗▖▘\x1b[0m     {muted}Session\x1b[0m      {}\n\
+{owl_color}━━▝▘▝▘━━\x1b[0m   {muted}Workflow\x1b[0m     metadata → scoring → psychometrics → report\n\n\
+  Type \x1b[1m/help\x1b[0m for commands · \x1b[1m/theme\x1b[0m to switch palette · {muted}Shift+Enter\x1b[0m for newline\n\
+  {muted}Hint\x1b[0m {REPL_HINT_TEXT}",
             self.model,
             provider,
+            self.theme_kind.as_str(),
             cwd,
             self.permission_mode.as_str(),
             self.session.id,
         )
+    }
+
+    fn theme_kind(&self) -> ThemeKind {
+        self.renderer.theme_kind()
     }
 
     fn build_runtime_for_session(
@@ -1727,6 +1781,7 @@ impl LiveCli {
             emit_output,
             self.allowed_tools.clone(),
             self.permission_mode,
+            self.theme_kind,
             progress,
             self.feature_config.clone(),
             self.tool_registry.clone(),
@@ -1752,20 +1807,12 @@ impl LiveCli {
         }
         let mut spinner = Spinner::new();
         let mut stdout = io::stdout();
-        spinner.tick(
-            "🦀 Thinking...",
-            TerminalRenderer::new().color_theme(),
-            &mut stdout,
-        )?;
+        spinner.tick("🦀 Thinking...", self.renderer.color_theme(), &mut stdout)?;
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
         let result = self.runtime.run_turn(input, Some(&mut permission_prompter));
         match result {
             Ok(_) => {
-                spinner.finish(
-                    "✨ Done",
-                    TerminalRenderer::new().color_theme(),
-                    &mut stdout,
-                )?;
+                spinner.finish("✨ Done", self.renderer.color_theme(), &mut stdout)?;
                 println!();
                 self.persist_session()?;
                 Ok(())
@@ -1773,7 +1820,7 @@ impl LiveCli {
             Err(error) => {
                 spinner.fail(
                     "❌ Request failed",
-                    TerminalRenderer::new().color_theme(),
+                    self.renderer.color_theme(),
                     &mut stdout,
                 )?;
                 Err(Box::new(error))
@@ -1868,6 +1915,7 @@ impl LiveCli {
             SlashCommand::Model { model } => self.set_model(model)?,
             SlashCommand::Provider { profile } => self.set_provider(profile)?,
             SlashCommand::Permissions { mode } => self.set_permissions(mode)?,
+            SlashCommand::Theme { theme } => self.set_theme(theme)?,
             SlashCommand::Clear { confirm } => self.clear_session(confirm)?,
             SlashCommand::Cost => {
                 self.print_cost();
@@ -1951,9 +1999,41 @@ impl LiveCli {
                     estimated_tokens: self.runtime.estimated_tokens(),
                 },
                 self.permission_mode.as_str(),
+                self.theme_kind(),
                 &status_context(Some(&self.session.path)).expect("status context should load"),
             )
         );
+    }
+
+    fn set_theme(&mut self, theme: Option<String>) -> Result<bool, Box<dyn std::error::Error>> {
+        let requested = theme
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let next_theme = match requested {
+            None => {
+                println!("{}", format_theme_report(self.theme_kind, None));
+                return Ok(false);
+            }
+            Some("toggle") => self.theme_kind.toggle(),
+            Some(value) => match ThemeKind::parse(value) {
+                Some(kind) => kind,
+                None => {
+                    eprintln!("unsupported theme: {value}");
+                    eprintln!("hint: use /theme dark, /theme light, or /theme toggle");
+                    return Ok(false);
+                }
+            },
+        };
+
+        let previous = self.theme_kind;
+        self.theme_kind = next_theme;
+        self.renderer.set_theme(next_theme);
+        let session = self.runtime.session().clone();
+        self.runtime =
+            self.build_runtime_for_session(session, Some(self.model.clone()), true, true, None)?;
+        println!("{}", format_theme_report(self.theme_kind, Some(previous)));
+        Ok(false)
     }
 
     fn set_model(&mut self, model: Option<String>) -> Result<bool, Box<dyn std::error::Error>> {
@@ -2043,6 +2123,7 @@ impl LiveCli {
             true,
             self.allowed_tools.clone(),
             self.permission_mode,
+            self.theme_kind,
             None,
             self.feature_config.clone(),
             self.tool_registry.clone(),
@@ -2560,6 +2641,9 @@ fn render_session_list(active_session_id: &str) -> Result<String, Box<dyn std::e
     Ok(lines.join("\n"))
 }
 
+const REPL_HINT_TEXT: &str =
+    "/status for a session snapshot · /theme toggle to switch palette · /compact before long sessions";
+
 fn render_repl_help() -> String {
     [
         "REPL".to_string(),
@@ -2571,11 +2655,10 @@ fn render_repl_help() -> String {
         "  Shift+Enter/Ctrl+J   Insert a newline".to_string(),
         String::new(),
         render_slash_command_help(),
+        String::new(),
+        format!("Hint: {REPL_HINT_TEXT}"),
     ]
-    .join(
-        "
-",
-    )
+    .join("\n")
 }
 
 fn status_context(
@@ -2603,20 +2686,23 @@ fn format_status_report(
     model: &str,
     usage: StatusUsage,
     permission_mode: &str,
+    theme_kind: ThemeKind,
     context: &StatusContext,
 ) -> String {
-    let pressure_line = context_pressure_for_messages(model, &[]).map(|_| {
-        let pressure = ContextPressure {
-            estimated_tokens: usage.estimated_tokens,
-            context_window: context_window_for_model(model).unwrap_or_default(),
-        };
-        format!(
-            "\n  Context usage    {} ({})",
-            format_context_pressure_inline(pressure),
-            context_pressure_label(pressure)
-        )
-    }).unwrap_or_default();
-    [
+    let pressure_line = context_pressure_for_messages(model, &[])
+        .map(|_| {
+            let pressure = ContextPressure {
+                estimated_tokens: usage.estimated_tokens,
+                context_window: context_window_for_model(model).unwrap_or_default(),
+            };
+            format!(
+                "\n  Context usage    {} ({})",
+                format_context_pressure_inline(pressure),
+                context_pressure_label(pressure)
+            )
+        })
+        .unwrap_or_default();
+    let sections = [
         format!(
             "Status
   Model            {model}
@@ -2659,11 +2745,17 @@ fn format_status_report(
             context.discovered_config_files,
             context.memory_file_count,
         ),
-    ]
-    .join(
-        "
+        "Tips
+  Session controls /status · /compact · /theme
+  Runtime switches /model · /provider · /permissions"
+            .to_string(),
+    ];
 
-",
+    format_section_card(
+        "Session snapshot",
+        &sections.join("\n\n"),
+        theme_kind,
+        false,
     )
 }
 
@@ -4413,6 +4505,7 @@ fn build_runtime(
     emit_output: bool,
     allowed_tools: Option<AllowedToolSet>,
     permission_mode: PermissionMode,
+    theme_kind: ThemeKind,
     progress_reporter: Option<InternalPromptProgressReporter>,
     feature_config: RuntimeFeatureConfig,
     tool_registry: GlobalToolRegistry,
@@ -4425,10 +4518,16 @@ fn build_runtime(
             enable_tools,
             emit_output,
             allowed_tools.clone(),
+            theme_kind,
             tool_registry.clone(),
             progress_reporter,
         )?,
-        CliToolExecutor::new(allowed_tools.clone(), emit_output, tool_registry.clone()),
+        CliToolExecutor::new(
+            allowed_tools.clone(),
+            emit_output,
+            theme_kind,
+            tool_registry.clone(),
+        ),
         permission_policy(permission_mode, &tool_registry),
         system_prompt,
         feature_config,
@@ -4484,6 +4583,7 @@ impl runtime::PermissionPrompter for CliPermissionPrompter {
 struct DefaultRuntimeClient {
     runtime: tokio::runtime::Runtime,
     client: ProviderClient,
+    renderer: TerminalRenderer,
     model: String,
     enable_tools: bool,
     emit_output: bool,
@@ -4498,6 +4598,7 @@ impl DefaultRuntimeClient {
         enable_tools: bool,
         emit_output: bool,
         allowed_tools: Option<AllowedToolSet>,
+        theme_kind: ThemeKind,
         tool_registry: GlobalToolRegistry,
         progress_reporter: Option<InternalPromptProgressReporter>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
@@ -4514,6 +4615,7 @@ impl DefaultRuntimeClient {
         Ok(Self {
             runtime: tokio::runtime::Runtime::new()?,
             client,
+            renderer: TerminalRenderer::with_theme(theme_kind),
             model,
             enable_tools,
             emit_output,
@@ -4595,7 +4697,7 @@ impl ApiClient for DefaultRuntimeClient {
             } else {
                 &mut sink
             };
-            let renderer = TerminalRenderer::new();
+            let renderer = &self.renderer;
             let mut markdown_stream = MarkdownStreamState::default();
             let mut events = Vec::new();
             let mut pending_tool: Option<(String, String, String)> = None;
@@ -4609,12 +4711,20 @@ impl ApiClient for DefaultRuntimeClient {
                 match event {
                     ApiStreamEvent::MessageStart(start) => {
                         for block in start.message.content {
-                            push_output_block(block, out, &mut events, &mut pending_tool, true)?;
+                            push_output_block(
+                                block,
+                                renderer,
+                                out,
+                                &mut events,
+                                &mut pending_tool,
+                                true,
+                            )?;
                         }
                     }
                     ApiStreamEvent::ContentBlockStart(start) => {
                         push_output_block(
                             start.content_block,
+                            renderer,
                             out,
                             &mut events,
                             &mut pending_tool,
@@ -4654,9 +4764,13 @@ impl ApiClient for DefaultRuntimeClient {
                                 progress_reporter.mark_tool_phase(&name, &input);
                             }
                             // Display tool call now that input is fully accumulated
-                            writeln!(out, "\n{}", format_tool_call_start(&name, &input))
-                                .and_then(|()| out.flush())
-                                .map_err(|error| RuntimeError::new(error.to_string()))?;
+                            writeln!(
+                                out,
+                                "\n{}",
+                                format_tool_call_start(&name, &input, renderer.theme_kind())
+                            )
+                            .and_then(|()| out.flush())
+                            .map_err(|error| RuntimeError::new(error.to_string()))?;
                             events.push(AssistantEvent::ToolUse { id, name, input });
                         }
                     }
@@ -4704,7 +4818,7 @@ impl ApiClient for DefaultRuntimeClient {
                 })
                 .await
                 .map_err(|error| RuntimeError::new(error.to_string()))?;
-            response_to_events(response, out)
+            response_to_events(response, &self.renderer, out)
         })
     }
 }
@@ -4765,19 +4879,34 @@ fn collect_tool_results(summary: &runtime::TurnSummary) -> Vec<serde_json::Value
         .collect()
 }
 
-fn slash_command_completion_candidates() -> Vec<String> {
+fn slash_command_completion_candidates() -> Vec<input::CompletionCandidate> {
     slash_command_specs()
         .iter()
         .flat_map(|spec| {
-            std::iter::once(spec.name)
-                .chain(spec.aliases.iter().copied())
-                .map(|name| format!("/{name}"))
-                .collect::<Vec<_>>()
+            let primary_value = format!("/{}", spec.name);
+            let primary_display = spec.argument_hint.map_or_else(
+                || primary_value.clone(),
+                |hint| format!("{primary_value} {hint}"),
+            );
+
+            std::iter::once(input::CompletionCandidate::new(
+                primary_value,
+                primary_display,
+                spec.summary,
+            ))
+            .chain(spec.aliases.iter().copied().map(|alias| {
+                input::CompletionCandidate::new(
+                    format!("/{alias}"),
+                    format!("/{alias} · alias for /{}", spec.name),
+                    format!("Alias for /{} — {}", spec.name, spec.summary),
+                )
+            }))
+            .collect::<Vec<_>>()
         })
         .collect()
 }
 
-fn format_tool_call_start(name: &str, input: &str) -> String {
+fn format_tool_call_start(name: &str, input: &str, theme_kind: ThemeKind) -> String {
     let parsed: serde_json::Value =
         serde_json::from_str(input).unwrap_or(serde_json::Value::String(input.to_string()));
 
@@ -4816,22 +4945,26 @@ fn format_tool_call_start(name: &str, input: &str) -> String {
         }
         "glob_search" | "Glob" => format_search_start("🔎 Glob", &parsed),
         "grep_search" | "Grep" => format_search_start("🔎 Grep", &parsed),
-        "web_search" | "WebSearch" => parsed
-            .get("query")
-            .and_then(|value| value.as_str())
-            .unwrap_or("?")
-            .to_string(),
+        "web_search" | "WebSearch" => {
+            let query = parsed
+                .get("query")
+                .and_then(|value| value.as_str())
+                .unwrap_or("?");
+            format!("\x1b[2m🌐 Searching {query}\x1b[0m")
+        }
         "TodoWrite" => format_todo_write_start(&parsed),
         _ => summarize_tool_payload(input),
     };
 
-    let border = "─".repeat(name.len() + 8);
-    format!(
-        "\x1b[38;5;245m╭─ \x1b[1;36m{name}\x1b[0;38;5;245m ─╮\x1b[0m\n\x1b[38;5;245m│\x1b[0m {detail}\n\x1b[38;5;245m╰{border}╯\x1b[0m"
+    format_section_card(
+        &format!("tool `{name}` · starting"),
+        &detail,
+        theme_kind,
+        false,
     )
 }
 
-fn format_tool_result(name: &str, output: &str, is_error: bool) -> String {
+fn format_tool_result(name: &str, output: &str, theme_kind: ThemeKind, is_error: bool) -> String {
     let icon = if is_error {
         "\x1b[1;31m✗\x1b[0m"
     } else {
@@ -4839,16 +4972,17 @@ fn format_tool_result(name: &str, output: &str, is_error: bool) -> String {
     };
     if is_error {
         let summary = truncate_for_summary(output.trim(), 160);
-        return if summary.is_empty() {
+        let body = if summary.is_empty() {
             format!("{icon} \x1b[38;5;245m{name}\x1b[0m")
         } else {
             format!("{icon} \x1b[38;5;245m{name}\x1b[0m\n\x1b[38;5;203m{summary}\x1b[0m")
         };
+        return format_section_card(&format!("tool `{name}` · failed"), &body, theme_kind, true);
     }
 
     let parsed: serde_json::Value =
         serde_json::from_str(output).unwrap_or(serde_json::Value::String(output.to_string()));
-    match name {
+    let body = match name {
         "bash" | "Bash" => format_bash_result(icon, &parsed),
         "read_file" | "Read" => format_read_result(icon, &parsed),
         "write_file" | "Write" => format_write_result(icon, &parsed),
@@ -4857,7 +4991,41 @@ fn format_tool_result(name: &str, output: &str, is_error: bool) -> String {
         "grep_search" | "Grep" => format_grep_result(icon, &parsed),
         "TodoWrite" => format_todo_write_result(icon, &parsed),
         _ => format_generic_tool_result(icon, name, &parsed),
+    };
+    format_section_card(
+        &format!("tool `{name}` · completed"),
+        &body,
+        theme_kind,
+        false,
+    )
+}
+
+fn format_section_card(title: &str, body: &str, theme_kind: ThemeKind, is_error: bool) -> String {
+    let palette = theme_kind.section_card_theme();
+    let border_color = if is_error {
+        palette.error_border_color
+    } else {
+        palette.border_color
+    };
+    let title_color = if is_error {
+        palette.error_title_color
+    } else {
+        palette.title_color
+    };
+    let border = "─".repeat(title.chars().count() + 2);
+    let mut lines = vec![format!(
+        "{border_color}╭─ {title_color}{title}{border_color} ─╮\x1b[0m"
+    )];
+    if body.trim().is_empty() {
+        lines.push(format!("{border_color}│\x1b[0m"));
+    } else {
+        lines.extend(
+            body.lines()
+                .map(|line| format!("{border_color}│\x1b[0m {line}")),
+        );
     }
+    lines.push(format!("{border_color}╰{border}╯\x1b[0m"));
+    lines.join("\n")
 }
 
 const DISPLAY_TRUNCATION_NOTICE: &str =
@@ -5104,9 +5272,7 @@ fn format_todo_write_result(icon: &str, parsed: &serde_json::Value) -> String {
             "{icon} \x1b[38;5;245mTodoWrite:\x1b[0m updated todos ({old_len} → {new_len}); verification follow-up recommended"
         )
     } else {
-        format!(
-            "{icon} \x1b[38;5;245mTodoWrite:\x1b[0m updated todos ({old_len} → {new_len})"
-        )
+        format!("{icon} \x1b[38;5;245mTodoWrite:\x1b[0m updated todos ({old_len} → {new_len})")
     }
 }
 
@@ -5266,6 +5432,7 @@ fn truncate_output_for_display(content: &str, max_lines: usize, max_chars: usize
 
 fn push_output_block(
     block: OutputContentBlock,
+    renderer: &TerminalRenderer,
     out: &mut (impl Write + ?Sized),
     events: &mut Vec<AssistantEvent>,
     pending_tool: &mut Option<(String, String, String)>,
@@ -5274,7 +5441,7 @@ fn push_output_block(
     match block {
         OutputContentBlock::Text { text } => {
             if !text.is_empty() {
-                let rendered = TerminalRenderer::new().markdown_to_ansi(&text);
+                let rendered = renderer.markdown_to_ansi(&text);
                 write!(out, "{rendered}")
                     .and_then(|()| out.flush())
                     .map_err(|error| RuntimeError::new(error.to_string()))?;
@@ -5302,13 +5469,14 @@ fn push_output_block(
 
 fn response_to_events(
     response: MessageResponse,
+    renderer: &TerminalRenderer,
     out: &mut (impl Write + ?Sized),
 ) -> Result<Vec<AssistantEvent>, RuntimeError> {
     let mut events = Vec::new();
     let mut pending_tool = None;
 
     for block in response.content {
-        push_output_block(block, out, &mut events, &mut pending_tool, false)?;
+        push_output_block(block, renderer, out, &mut events, &mut pending_tool, false)?;
         if let Some((id, name, input)) = pending_tool.take() {
             events.push(AssistantEvent::ToolUse { id, name, input });
         }
@@ -5335,10 +5503,11 @@ impl CliToolExecutor {
     fn new(
         allowed_tools: Option<AllowedToolSet>,
         emit_output: bool,
+        theme_kind: ThemeKind,
         tool_registry: GlobalToolRegistry,
     ) -> Self {
         Self {
-            renderer: TerminalRenderer::new(),
+            renderer: TerminalRenderer::with_theme(theme_kind),
             emit_output,
             allowed_tools,
             tool_registry,
@@ -5362,7 +5531,8 @@ impl ToolExecutor for CliToolExecutor {
         match self.tool_registry.execute(tool_name, &value) {
             Ok(output) => {
                 if self.emit_output {
-                    let markdown = format_tool_result(tool_name, &output, false);
+                    let markdown =
+                        format_tool_result(tool_name, &output, self.renderer.theme_kind(), false);
                     self.renderer
                         .stream_markdown(&markdown, &mut io::stdout())
                         .map_err(|error| ToolError::new(error.to_string()))?;
@@ -5371,7 +5541,8 @@ impl ToolExecutor for CliToolExecutor {
             }
             Err(error) => {
                 if self.emit_output {
-                    let markdown = format_tool_result(tool_name, &error, true);
+                    let markdown =
+                        format_tool_result(tool_name, &error, self.renderer.theme_kind(), true);
                     self.renderer
                         .stream_markdown(&markdown, &mut io::stdout())
                         .map_err(|stream_error| ToolError::new(stream_error.to_string()))?;
@@ -5567,7 +5738,7 @@ mod tests {
         format_cost_report, format_internal_prompt_progress_line, format_model_report,
         format_model_switch_report, format_permissions_report, format_permissions_switch_report,
         format_provider_report, format_provider_switch_report, format_resume_report,
-        format_status_report, format_tool_call_start, format_tool_result,
+        format_status_report, format_theme_report, format_tool_call_start, format_tool_result,
         normalize_permission_mode, parse_args, parse_git_status_metadata, permission_policy,
         print_help_to, promote_project_skill, push_output_block, render_config_report,
         render_memory_report, render_repl_help, resolve_client_selection, resolve_model_alias,
@@ -5576,6 +5747,7 @@ mod tests {
         InitResearchProfile, InternalPromptProgressEvent, InternalPromptProgressState,
         ProjectSkillCommand, SlashCommand, StatusUsage,
     };
+    use crate::render::{TerminalRenderer, ThemeKind};
     use api::{MessageResponse, OutputContentBlock, Usage};
     use plugins::{PluginTool, PluginToolDefinition, PluginToolPermission};
     use runtime::{
@@ -6536,6 +6708,24 @@ mod tests {
     }
 
     #[test]
+    fn slash_completion_candidates_include_argument_hints_and_alias_copy() {
+        let candidates = crate::slash_command_completion_candidates();
+        let theme = candidates
+            .iter()
+            .find(|candidate| candidate.value == "/theme")
+            .expect("theme completion exists");
+        let plugins_alias = candidates
+            .iter()
+            .find(|candidate| candidate.value == "/plugins")
+            .expect("plugins alias exists");
+
+        assert_eq!(theme.display, "/theme [dark|light|toggle]");
+        assert_eq!(theme.summary, "Show or switch the CLI color theme");
+        assert!(plugins_alias.display.contains("alias for /plugin"));
+        assert!(plugins_alias.summary.contains("Alias for /plugin"));
+    }
+
+    #[test]
     fn resume_supported_command_list_matches_expected_surface() {
         let names = resume_supported_slash_commands()
             .into_iter()
@@ -6730,6 +6920,7 @@ mod tests {
                 estimated_tokens: 128,
             },
             "workspace-write",
+            ThemeKind::Dark,
             &super::StatusContext {
                 cwd: PathBuf::from("/tmp/project"),
                 session_path: Some(PathBuf::from("session.json")),
@@ -6752,6 +6943,20 @@ mod tests {
         assert!(status.contains("Session          session.json"));
         assert!(status.contains("Config files     loaded 2/3"));
         assert!(status.contains("Memory files     4"));
+        assert!(status.contains("Session controls /status · /compact · /theme"));
+    }
+
+    #[test]
+    fn theme_report_shows_current_and_previous_theme() {
+        let switched = format_theme_report(ThemeKind::Light, Some(ThemeKind::Dark));
+        let current = format_theme_report(ThemeKind::Dark, None);
+
+        assert!(switched.contains("\x1b[38;2;148;163;184m"));
+        assert!(switched.contains("Previous         dark"));
+        assert!(switched.contains("Current          light"));
+        assert!(current.contains("\x1b[38;2;108;112;134m"));
+        assert!(current.contains("Current          dark"));
+        assert!(current.contains("dark, light"));
     }
 
     #[test]
@@ -6902,19 +7107,25 @@ mod tests {
         assert!(help.contains("Up/Down"));
         assert!(help.contains("Tab"));
         assert!(help.contains("Shift+Enter/Ctrl+J"));
+        assert!(help.contains("/theme toggle"));
+        assert!(help.contains("/compact before long sessions"));
     }
 
     #[test]
     fn tool_rendering_helpers_compact_output() {
-        let start = format_tool_call_start("read_file", r#"{"path":"src/main.rs"}"#);
-        assert!(start.contains("read_file"));
+        let start =
+            format_tool_call_start("read_file", r#"{"path":"src/main.rs"}"#, ThemeKind::Dark);
+        assert!(start.contains("tool `read_file` · starting"));
+        assert!(start.contains("📄 Reading src/main.rs"));
         assert!(start.contains("src/main.rs"));
 
         let done = format_tool_result(
             "read_file",
             r#"{"file":{"filePath":"src/main.rs","content":"hello","numLines":1,"startLine":1,"totalLines":1}}"#,
+            ThemeKind::Dark,
             false,
         );
+        assert!(done.contains("tool `read_file` · completed"));
         assert!(done.contains("📄 Read src/main.rs"));
         assert!(done.contains("hello"));
     }
@@ -6924,7 +7135,9 @@ mod tests {
         let start = format_tool_call_start(
             "TodoWrite",
             r#"{"todos":[{"content":"检查现有代码和数据","status":"completed"},{"content":"整理输出格式","status":"in_progress"}]}"#,
+            ThemeKind::Dark,
         );
+        assert!(start.contains("tool `TodoWrite` · starting"));
         assert!(start.contains("Updating 2 todo item(s)"));
         assert!(start.contains("completed 1"));
         assert!(!start.contains("\"todos\""));
@@ -6933,6 +7146,7 @@ mod tests {
         let done = format_tool_result(
             "TodoWrite",
             r#"{"oldTodos":[{"content":"a"}],"newTodos":[{"content":"a"},{"content":"b"}],"verificationNudgeNeeded":true}"#,
+            ThemeKind::Dark,
             false,
         );
         assert!(done.contains("updated todos (1 → 2)"));
@@ -6957,7 +7171,7 @@ mod tests {
         })
         .to_string();
 
-        let rendered = format_tool_result("read_file", &output, false);
+        let rendered = format_tool_result("read_file", &output, ThemeKind::Dark, false);
 
         assert!(rendered.contains("line 000"));
         assert!(rendered.contains("line 079"));
@@ -6979,8 +7193,9 @@ mod tests {
         })
         .to_string();
 
-        let rendered = format_tool_result("bash", &output, false);
+        let rendered = format_tool_result("bash", &output, ThemeKind::Dark, false);
 
+        assert!(rendered.contains("tool `bash` · completed"));
         assert!(rendered.contains("stdout 000"));
         assert!(rendered.contains("stdout 059"));
         assert!(!rendered.contains("stdout 119"));
@@ -6999,7 +7214,7 @@ mod tests {
         })
         .to_string();
 
-        let rendered = format_tool_result("plugin_echo", &output, false);
+        let rendered = format_tool_result("plugin_echo", &output, ThemeKind::Dark, false);
 
         assert!(rendered.contains("plugin_echo"));
         assert!(rendered.contains("payload 000"));
@@ -7017,7 +7232,7 @@ mod tests {
             .collect::<Vec<_>>()
             .join("\n");
 
-        let rendered = format_tool_result("plugin_echo", &output, false);
+        let rendered = format_tool_result("plugin_echo", &output, ThemeKind::Dark, false);
 
         assert!(rendered.contains("plugin_echo"));
         assert!(rendered.contains("raw 000"));
@@ -7095,11 +7310,13 @@ mod tests {
         let mut out = Vec::new();
         let mut events = Vec::new();
         let mut pending_tool = None;
+        let renderer = TerminalRenderer::with_theme(ThemeKind::Dark);
 
         push_output_block(
             OutputContentBlock::Text {
                 text: "# Heading".to_string(),
             },
+            &renderer,
             &mut out,
             &mut events,
             &mut pending_tool,
@@ -7117,6 +7334,7 @@ mod tests {
         let mut out = Vec::new();
         let mut events = Vec::new();
         let mut pending_tool = None;
+        let renderer = TerminalRenderer::with_theme(ThemeKind::Dark);
 
         push_output_block(
             OutputContentBlock::ToolUse {
@@ -7124,6 +7342,7 @@ mod tests {
                 name: "read_file".to_string(),
                 input: json!({}),
             },
+            &renderer,
             &mut out,
             &mut events,
             &mut pending_tool,
@@ -7141,6 +7360,7 @@ mod tests {
     #[test]
     fn response_to_events_preserves_empty_object_json_input_outside_streaming() {
         let mut out = Vec::new();
+        let renderer = TerminalRenderer::with_theme(ThemeKind::Dark);
         let events = response_to_events(
             MessageResponse {
                 id: "msg-1".to_string(),
@@ -7162,6 +7382,7 @@ mod tests {
                 },
                 request_id: None,
             },
+            &renderer,
             &mut out,
         )
         .expect("response conversion should succeed");
@@ -7176,6 +7397,7 @@ mod tests {
     #[test]
     fn response_to_events_preserves_non_empty_json_input_outside_streaming() {
         let mut out = Vec::new();
+        let renderer = TerminalRenderer::with_theme(ThemeKind::Dark);
         let events = response_to_events(
             MessageResponse {
                 id: "msg-2".to_string(),
@@ -7197,6 +7419,7 @@ mod tests {
                 },
                 request_id: None,
             },
+            &renderer,
             &mut out,
         )
         .expect("response conversion should succeed");
@@ -7211,6 +7434,7 @@ mod tests {
     #[test]
     fn response_to_events_ignores_thinking_blocks() {
         let mut out = Vec::new();
+        let renderer = TerminalRenderer::with_theme(ThemeKind::Dark);
         let events = response_to_events(
             MessageResponse {
                 id: "msg-3".to_string(),
@@ -7236,6 +7460,7 @@ mod tests {
                 },
                 request_id: None,
             },
+            &renderer,
             &mut out,
         )
         .expect("response conversion should succeed");
@@ -7286,6 +7511,7 @@ mod tests {
                 estimated_tokens: 110_000,
             },
             "workspace-write",
+            ThemeKind::Light,
             &crate::StatusContext {
                 cwd: PathBuf::from("/tmp/demo"),
                 session_path: None,

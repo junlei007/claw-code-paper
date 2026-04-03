@@ -12,8 +12,99 @@ use syntect::parsing::SyntaxSet;
 use syntect::util::{as_24_bit_terminal_escaped, LinesWithEndings};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThemeKind {
+    Dark,
+    Light,
+}
+
+impl ThemeKind {
+    #[must_use]
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "dark" => Some(Self::Dark),
+            "light" => Some(Self::Light),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Dark => "dark",
+            Self::Light => "light",
+        }
+    }
+
+    #[must_use]
+    pub fn toggle(self) -> Self {
+        match self {
+            Self::Dark => Self::Light,
+            Self::Light => Self::Dark,
+        }
+    }
+
+    #[must_use]
+    pub fn prompt_theme(self) -> PromptTheme {
+        match self {
+            Self::Dark => PromptTheme {
+                mode_chip_color: "\x1b[38;2;166;173;200m",
+                prompt_accent_color: "\x1b[38;2;137;180;250m",
+                selection_style: "\x1b[38;2;205;214;244;48;2;69;71;90m",
+                suggestion_color: "\x1b[38;2;148;156;187m",
+                suggestion_selected_style: "\x1b[38;2;205;214;244;48;2;69;71;90m",
+            },
+            Self::Light => PromptTheme {
+                mode_chip_color: "\x1b[38;2;92;103;125m",
+                prompt_accent_color: "\x1b[38;2;30;102;245m",
+                selection_style: "\x1b[38;2;35;38;52;48;2;191;222;255m",
+                suggestion_color: "\x1b[38;2;100;116;139m",
+                suggestion_selected_style: "\x1b[38;2;35;38;52;48;2;191;222;255m",
+            },
+        }
+    }
+
+    #[must_use]
+    pub fn section_card_theme(self) -> SectionCardTheme {
+        match self {
+            Self::Dark => SectionCardTheme {
+                border_color: "\x1b[38;2;108;112;134m",
+                title_color: "\x1b[1;38;2;180;190;254m",
+                error_border_color: "\x1b[38;2;243;139;168m",
+                error_title_color: "\x1b[1;38;2;250;179;135m",
+            },
+            Self::Light => SectionCardTheme {
+                border_color: "\x1b[38;2;148;163;184m",
+                title_color: "\x1b[1;38;2;30;64;175m",
+                error_border_color: "\x1b[38;2;220;38;38m",
+                error_title_color: "\x1b[1;38;2;185;28;28m",
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PromptTheme {
+    pub mode_chip_color: &'static str,
+    pub prompt_accent_color: &'static str,
+    pub selection_style: &'static str,
+    pub suggestion_color: &'static str,
+    pub suggestion_selected_style: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SectionCardTheme {
+    pub border_color: &'static str,
+    pub title_color: &'static str,
+    pub error_border_color: &'static str,
+    pub error_title_color: &'static str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ColorTheme {
     heading: Color,
+    heading_secondary: Color,
+    heading_tertiary: Color,
+    heading_muted: Color,
     emphasis: Color,
     strong: Color,
     inline_code: Color,
@@ -21,26 +112,71 @@ pub struct ColorTheme {
     quote: Color,
     table_border: Color,
     code_block_border: Color,
+    code_block_background: Color,
     spinner_active: Color,
     spinner_done: Color,
     spinner_failed: Color,
 }
 
+const fn rgb(red: u8, green: u8, blue: u8) -> Color {
+    Color::Rgb {
+        r: red,
+        g: green,
+        b: blue,
+    }
+}
+
 impl Default for ColorTheme {
     fn default() -> Self {
-        Self {
-            heading: Color::Cyan,
-            emphasis: Color::Magenta,
-            strong: Color::Yellow,
-            inline_code: Color::Green,
-            link: Color::Blue,
-            quote: Color::DarkGrey,
-            table_border: Color::DarkCyan,
-            code_block_border: Color::DarkGrey,
-            spinner_active: Color::Blue,
-            spinner_done: Color::Green,
-            spinner_failed: Color::Red,
+        Self::for_kind(ThemeKind::Dark)
+    }
+}
+
+impl ColorTheme {
+    #[must_use]
+    pub fn for_kind(kind: ThemeKind) -> Self {
+        match kind {
+            ThemeKind::Dark => Self {
+                heading: rgb(180, 190, 254),
+                heading_secondary: rgb(205, 214, 244),
+                heading_tertiary: rgb(137, 180, 250),
+                heading_muted: rgb(148, 156, 187),
+                emphasis: rgb(203, 166, 247),
+                strong: rgb(249, 226, 175),
+                inline_code: rgb(166, 227, 161),
+                link: rgb(137, 180, 250),
+                quote: rgb(127, 132, 156),
+                table_border: rgb(108, 112, 134),
+                code_block_border: rgb(127, 132, 156),
+                code_block_background: rgb(30, 32, 40),
+                spinner_active: rgb(137, 180, 250),
+                spinner_done: rgb(166, 227, 161),
+                spinner_failed: rgb(243, 139, 168),
+            },
+            ThemeKind::Light => Self {
+                heading: rgb(30, 64, 175),
+                heading_secondary: rgb(17, 24, 39),
+                heading_tertiary: rgb(8, 145, 178),
+                heading_muted: rgb(100, 116, 139),
+                emphasis: rgb(126, 34, 206),
+                strong: rgb(161, 98, 7),
+                inline_code: rgb(21, 128, 61),
+                link: rgb(37, 99, 235),
+                quote: rgb(100, 116, 139),
+                table_border: rgb(148, 163, 184),
+                code_block_border: rgb(148, 163, 184),
+                code_block_background: rgb(241, 245, 249),
+                spinner_active: rgb(37, 99, 235),
+                spinner_done: rgb(22, 163, 74),
+                spinner_failed: rgb(220, 38, 38),
+            },
         }
+    }
+}
+
+impl Default for ThemeKind {
+    fn default() -> Self {
+        Self::Dark
     }
 }
 
@@ -181,9 +317,9 @@ impl RenderState {
         if let Some(level) = self.heading_level {
             style = match level {
                 1 => style.with(theme.heading),
-                2 => style.white(),
-                3 => style.with(Color::Blue),
-                _ => style.with(Color::Grey),
+                2 => style.with(theme.heading_secondary),
+                3 => style.with(theme.heading_tertiary),
+                _ => style.with(theme.heading_muted),
             };
         } else if self.strong > 0 {
             style = style.with(theme.strong);
@@ -214,37 +350,68 @@ impl RenderState {
     }
 }
 
+fn syntax_theme_for_kind(theme_set: &ThemeSet, kind: ThemeKind) -> Theme {
+    let preferred = match kind {
+        ThemeKind::Dark => ["base16-ocean.dark", "Solarized (dark)"],
+        ThemeKind::Light => ["InspiredGitHub", "Solarized (light)"],
+    };
+    for name in preferred {
+        if let Some(theme) = theme_set.themes.get(name) {
+            return theme.clone();
+        }
+    }
+    theme_set
+        .themes
+        .values()
+        .next()
+        .cloned()
+        .unwrap_or_default()
+}
+
 #[derive(Debug)]
 pub struct TerminalRenderer {
     syntax_set: SyntaxSet,
+    theme_set: ThemeSet,
     syntax_theme: Theme,
     color_theme: ColorTheme,
+    theme_kind: ThemeKind,
 }
 
 impl Default for TerminalRenderer {
     fn default() -> Self {
-        let syntax_set = SyntaxSet::load_defaults_newlines();
-        let syntax_theme = ThemeSet::load_defaults()
-            .themes
-            .remove("base16-ocean.dark")
-            .unwrap_or_default();
-        Self {
-            syntax_set,
-            syntax_theme,
-            color_theme: ColorTheme::default(),
-        }
+        Self::with_theme(ThemeKind::default())
     }
 }
 
 impl TerminalRenderer {
     #[must_use]
-    pub fn new() -> Self {
-        Self::default()
+    pub fn with_theme(theme_kind: ThemeKind) -> Self {
+        let syntax_set = SyntaxSet::load_defaults_newlines();
+        let theme_set = ThemeSet::load_defaults();
+        let syntax_theme = syntax_theme_for_kind(&theme_set, theme_kind);
+        Self {
+            syntax_set,
+            theme_set,
+            syntax_theme,
+            color_theme: ColorTheme::for_kind(theme_kind),
+            theme_kind,
+        }
+    }
+
+    pub fn set_theme(&mut self, theme_kind: ThemeKind) {
+        self.syntax_theme = syntax_theme_for_kind(&self.theme_set, theme_kind);
+        self.color_theme = ColorTheme::for_kind(theme_kind);
+        self.theme_kind = theme_kind;
     }
 
     #[must_use]
     pub fn color_theme(&self) -> &ColorTheme {
         &self.color_theme
+    }
+
+    #[must_use]
+    pub fn theme_kind(&self) -> ThemeKind {
+        self.theme_kind
     }
 
     #[must_use]
@@ -578,9 +745,15 @@ impl TerminalRenderer {
             match syntax_highlighter.highlight_line(line, &self.syntax_set) {
                 Ok(ranges) => {
                     let escaped = as_24_bit_terminal_escaped(&ranges[..], false);
-                    colored_output.push_str(&apply_code_block_background(&escaped));
+                    colored_output.push_str(&apply_code_block_background(
+                        &escaped,
+                        self.color_theme.code_block_background,
+                    ));
                 }
-                Err(_) => colored_output.push_str(&apply_code_block_background(line)),
+                Err(_) => colored_output.push_str(&apply_code_block_background(
+                    line,
+                    self.color_theme.code_block_background,
+                )),
             }
         }
 
@@ -624,15 +797,40 @@ impl MarkdownStreamState {
     }
 }
 
-fn apply_code_block_background(line: &str) -> String {
+fn apply_code_block_background(line: &str, background: Color) -> String {
     let trimmed = line.trim_end_matches('\n');
     let trailing_newline = if trimmed.len() == line.len() {
         ""
     } else {
         "\n"
     };
-    let with_background = trimmed.replace("\u{1b}[0m", "\u{1b}[0;48;5;236m");
-    format!("\u{1b}[48;5;236m{with_background}\u{1b}[0m{trailing_newline}")
+    let background_sequence = background_ansi(background);
+    let with_background = trimmed.replace("\u{1b}[0m", &format!("\u{1b}[0;{background_sequence}m"));
+    format!("\u{1b}[{background_sequence}m{with_background}\u{1b}[0m{trailing_newline}")
+}
+
+fn background_ansi(color: Color) -> String {
+    match color {
+        Color::Rgb { r, g, b } => format!("48;2;{r};{g};{b}"),
+        Color::AnsiValue(value) => format!("48;5;{value}"),
+        Color::Black => "40".to_string(),
+        Color::DarkGrey => "100".to_string(),
+        Color::Red => "41".to_string(),
+        Color::DarkRed => "101".to_string(),
+        Color::Green => "42".to_string(),
+        Color::DarkGreen => "102".to_string(),
+        Color::Yellow => "43".to_string(),
+        Color::DarkYellow => "103".to_string(),
+        Color::Blue => "44".to_string(),
+        Color::DarkBlue => "104".to_string(),
+        Color::Magenta => "45".to_string(),
+        Color::DarkMagenta => "105".to_string(),
+        Color::Cyan => "46".to_string(),
+        Color::DarkCyan => "106".to_string(),
+        Color::White => "47".to_string(),
+        Color::Grey => "107".to_string(),
+        Color::Reset => "49".to_string(),
+    }
 }
 
 fn find_stream_safe_boundary(markdown: &str) -> Option<usize> {
@@ -693,11 +891,11 @@ fn strip_ansi(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{strip_ansi, MarkdownStreamState, Spinner, TerminalRenderer};
+    use super::{strip_ansi, MarkdownStreamState, Spinner, TerminalRenderer, ThemeKind};
 
     #[test]
     fn renders_markdown_with_styling_and_lists() {
-        let terminal_renderer = TerminalRenderer::new();
+        let terminal_renderer = TerminalRenderer::with_theme(ThemeKind::default());
         let markdown_output = terminal_renderer
             .render_markdown("# Heading\n\nThis is **bold** and *italic*.\n\n- item\n\n`code`");
 
@@ -709,7 +907,7 @@ mod tests {
 
     #[test]
     fn renders_links_as_colored_markdown_labels() {
-        let terminal_renderer = TerminalRenderer::new();
+        let terminal_renderer = TerminalRenderer::with_theme(ThemeKind::default());
         let markdown_output =
             terminal_renderer.render_markdown("See [Claw](https://example.com/docs) now.");
         let plain_text = strip_ansi(&markdown_output);
@@ -720,7 +918,7 @@ mod tests {
 
     #[test]
     fn highlights_fenced_code_blocks() {
-        let terminal_renderer = TerminalRenderer::new();
+        let terminal_renderer = TerminalRenderer::with_theme(ThemeKind::default());
         let markdown_output =
             terminal_renderer.markdown_to_ansi("```rust\nfn hi() { println!(\"hi\"); }\n```");
         let plain_text = strip_ansi(&markdown_output);
@@ -728,12 +926,12 @@ mod tests {
         assert!(plain_text.contains("╭─ rust"));
         assert!(plain_text.contains("fn hi"));
         assert!(markdown_output.contains('\u{1b}'));
-        assert!(markdown_output.contains("[48;5;236m"));
+        assert!(markdown_output.contains("[48;2;30;32;40m"));
     }
 
     #[test]
     fn renders_ordered_and_nested_lists() {
-        let terminal_renderer = TerminalRenderer::new();
+        let terminal_renderer = TerminalRenderer::with_theme(ThemeKind::default());
         let markdown_output =
             terminal_renderer.render_markdown("1. first\n2. second\n   - nested\n   - child");
         let plain_text = strip_ansi(&markdown_output);
@@ -746,7 +944,7 @@ mod tests {
 
     #[test]
     fn renders_tables_with_alignment() {
-        let terminal_renderer = TerminalRenderer::new();
+        let terminal_renderer = TerminalRenderer::with_theme(ThemeKind::default());
         let markdown_output = terminal_renderer
             .render_markdown("| Name | Value |\n| ---- | ----- |\n| alpha | 1 |\n| beta | 22 |");
         let plain_text = strip_ansi(&markdown_output);
@@ -761,7 +959,7 @@ mod tests {
 
     #[test]
     fn streaming_state_waits_for_complete_blocks() {
-        let renderer = TerminalRenderer::new();
+        let renderer = TerminalRenderer::with_theme(ThemeKind::default());
         let mut state = MarkdownStreamState::default();
 
         assert_eq!(state.push(&renderer, "# Heading"), None);
@@ -781,7 +979,7 @@ mod tests {
 
     #[test]
     fn spinner_advances_frames() {
-        let terminal_renderer = TerminalRenderer::new();
+        let terminal_renderer = TerminalRenderer::with_theme(ThemeKind::default());
         let mut spinner = Spinner::new();
         let mut out = Vec::new();
         spinner
@@ -793,5 +991,25 @@ mod tests {
 
         let output = String::from_utf8_lossy(&out);
         assert!(output.contains("Working"));
+    }
+
+    #[test]
+    fn theme_kind_parses_and_toggles() {
+        assert_eq!(ThemeKind::parse("dark"), Some(ThemeKind::Dark));
+        assert_eq!(ThemeKind::parse("light"), Some(ThemeKind::Light));
+        assert_eq!(ThemeKind::Dark.toggle(), ThemeKind::Light);
+        assert_eq!(ThemeKind::Light.toggle(), ThemeKind::Dark);
+    }
+
+    #[test]
+    fn renderer_can_switch_themes() {
+        let mut renderer = TerminalRenderer::with_theme(ThemeKind::Dark);
+        assert_eq!(renderer.theme_kind(), ThemeKind::Dark);
+
+        renderer.set_theme(ThemeKind::Light);
+        assert_eq!(renderer.theme_kind(), ThemeKind::Light);
+
+        let markdown_output = renderer.render_markdown("# Heading\n\n`code`");
+        assert!(markdown_output.contains('\u{1b}'));
     }
 }

@@ -136,6 +136,14 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         category: SlashCommandCategory::Core,
     },
     SlashCommandSpec {
+        name: "theme",
+        aliases: &[],
+        summary: "Show or switch the CLI color theme",
+        argument_hint: Some("[dark|light|toggle]"),
+        resume_supported: false,
+        category: SlashCommandCategory::Core,
+    },
+    SlashCommandSpec {
         name: "resume",
         aliases: &[],
         summary: "Load a saved session into the REPL",
@@ -350,6 +358,9 @@ pub enum SlashCommand {
     Permissions {
         mode: Option<String>,
     },
+    Theme {
+        theme: Option<String>,
+    },
     Clear {
         confirm: bool,
     },
@@ -436,6 +447,9 @@ impl SlashCommand {
             "permissions" => Self::Permissions {
                 mode: parts.next().map(ToOwned::to_owned),
             },
+            "theme" => Self::Theme {
+                theme: parts.next().map(ToOwned::to_owned),
+            },
             "clear" => Self::Clear {
                 confirm: parts.next() == Some("--confirm"),
             },
@@ -502,6 +516,7 @@ pub fn render_slash_command_help() -> String {
     let cli_name = current_cli_name();
     let mut lines = vec![
         "Slash commands".to_string(),
+        "  Typing / plus a prefix shows matching commands inline.".to_string(),
         "  Tab completes commands inside the REPL.".to_string(),
         format!("  [resume] = also available via {cli_name} --resume SESSION.json"),
     ];
@@ -1806,6 +1821,7 @@ pub fn handle_slash_command(
         | SlashCommand::Model { .. }
         | SlashCommand::Provider { .. }
         | SlashCommand::Permissions { .. }
+        | SlashCommand::Theme { .. }
         | SlashCommand::Clear { .. }
         | SlashCommand::Cost
         | SlashCommand::Resume { .. }
@@ -2087,6 +2103,16 @@ mod tests {
             })
         );
         assert_eq!(
+            SlashCommand::parse("/theme light"),
+            Some(SlashCommand::Theme {
+                theme: Some("light".to_string()),
+            })
+        );
+        assert_eq!(
+            SlashCommand::parse("/theme"),
+            Some(SlashCommand::Theme { theme: None })
+        );
+        assert_eq!(
             SlashCommand::parse("/clear"),
             Some(SlashCommand::Clear { confirm: false })
         );
@@ -2162,6 +2188,7 @@ mod tests {
     fn renders_help_from_shared_specs() {
         let help = render_slash_command_help();
         assert!(help.contains("available via claw --resume SESSION.json"));
+        assert!(help.contains("prefix shows matching commands inline"));
         assert!(help.contains("Core flow"));
         assert!(help.contains("Workspace & memory"));
         assert!(help.contains("Sessions & output"));
@@ -2183,6 +2210,7 @@ mod tests {
         assert!(help.contains("/model [model]"));
         assert!(help.contains("/provider [profile]"));
         assert!(help.contains("/permissions [read-only|workspace-write|danger-full-access]"));
+        assert!(help.contains("/theme [dark|light|toggle]"));
         assert!(help.contains("/clear [--confirm]"));
         assert!(help.contains("/cost"));
         assert!(help.contains("/resume <session-path>"));
@@ -2199,7 +2227,7 @@ mod tests {
         assert!(help.contains("aliases: /plugins, /marketplace"));
         assert!(help.contains("/agents"));
         assert!(help.contains("/skills"));
-        assert_eq!(slash_command_specs().len(), 29);
+        assert_eq!(slash_command_specs().len(), 30);
         assert_eq!(resume_supported_slash_commands().len(), 13);
     }
 

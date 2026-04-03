@@ -2,6 +2,8 @@ __pycache__/
 .DS_Store
 archive/
 .omx/
+.claw/
+.port_sessions/
 .clawd-agents/
 claw-code-main/
 # Claude Code local artifacts

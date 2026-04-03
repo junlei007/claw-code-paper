@@ -11,10 +11,36 @@
 use std::borrow::Cow;
 use std::io::{self, IsTerminal, Write};
 
+use crate::render::{PromptTheme, ThemeKind};
 use crossterm::cursor::{MoveToColumn, MoveUp};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::queue;
 use crossterm::terminal::{self, Clear, ClearType};
+
+const ANSI_RESET: &str = "\x1b[0m";
+const INLINE_SUGGESTION_LIMIT: usize = 5;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompletionCandidate {
+    pub value: String,
+    pub display: String,
+    pub summary: String,
+}
+
+impl CompletionCandidate {
+    #[must_use]
+    pub fn new(
+        value: impl Into<String>,
+        display: impl Into<String>,
+        summary: impl Into<String>,
+    ) -> Self {
+        Self {
+            value: value.into(),
+            display: display.into(),
+            summary: summary.into(),
+        }
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ReadOutcome {
@@ -67,6 +93,12 @@ struct EditSession {
     history_backup: Option<String>,
     rendered_cursor_row: usize,
     rendered_lines: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PromptDisplay {
+    rendered: String,
+    width: usize,
 }
 
 impl EditSession {
@@ -153,7 +185,7 @@ impl EditSession {
         self.enter_normal_mode();
     }
 
-    fn visible_buffer(&self) -> Cow<'_, str> {
+    fn visible_buffer(&self, prompt_theme: PromptTheme) -> Cow<'_, str> {
         if self.mode != EditorMode::Visual {
             return Cow::Borrowed(self.active_text());
         }
@@ -165,13 +197,33 @@ impl EditSession {
             return Cow::Borrowed(self.active_text());
         };
 
-        Cow::Owned(render_selected_text(&self.text, start, end))
+        Cow::Owned(render_selected_text(&self.text, start, end, prompt_theme))
     }
 
-    fn prompt<'a>(&self, base_prompt: &'a str, vim_enabled: bool) -> Cow<'a, str> {
+    fn prompt(
+        &self,
+        base_prompt: &str,
+        vim_enabled: bool,
+        prompt_theme: PromptTheme,
+    ) -> PromptDisplay {
         match self.mode.indicator(vim_enabled) {
-            Some(mode) => Cow::Owned(format!("[{mode}] {base_prompt}")),
-            None => Cow::Borrowed(base_prompt),
+            Some(mode) => {
+                let plain = format!("[{mode}] {base_prompt}");
+                PromptDisplay {
+                    rendered: format!(
+                        "{}[{mode}]{ANSI_RESET} {}{base_prompt}{ANSI_RESET}",
+                        prompt_theme.mode_chip_color, prompt_theme.prompt_accent_color
+                    ),
+                    width: plain.chars().count(),
+                }
+            }
+            None => PromptDisplay {
+                rendered: format!(
+                    "{}{base_prompt}{ANSI_RESET}",
+                    prompt_theme.prompt_accent_color
+                ),
+                width: base_prompt.chars().count(),
+            },
         }
     }
 
@@ -188,15 +240,34 @@ impl EditSession {
         out: &mut impl Write,
         base_prompt: &str,
         vim_enabled: bool,
+        prompt_theme: PromptTheme,
+        suggestions: Option<&SuggestionDisplay>,
     ) -> io::Result<()> {
         self.clear_render(out)?;
 
-        let prompt = self.prompt(base_prompt, vim_enabled);
-        let buffer = self.visible_buffer();
-        write!(out, "{prompt}{buffer}")?;
+        let prompt = self.prompt(base_prompt, vim_enabled, prompt_theme);
+        let buffer = self.visible_buffer(prompt_theme);
+        write!(out, "{}{buffer}", prompt.rendered)?;
+        if let Some(suggestions) = suggestions {
+            write!(
+                out,
+                "\n{}{ANSI_RESET}",
+                render_inline_suggestions(suggestions, prompt_theme)
+            )?;
+            if let Some(summary) = suggestions.summary.as_deref() {
+                write!(
+                    out,
+                    "\n{}{ANSI_RESET}",
+                    render_inline_summary(summary, prompt_theme)
+                )?;
+            }
+        }
 
-        let (cursor_row, cursor_col, total_lines) = self.cursor_layout(prompt.as_ref());
-        let rows_to_move_up = total_lines.saturating_sub(cursor_row + 1);
+        let (cursor_row, cursor_col, total_lines) = self.cursor_layout(prompt.width);
+        let suggestion_lines = suggestions.map_or(0, |suggestions| {
+            1 + usize::from(suggestions.summary.is_some())
+        });
+        let rows_to_move_up = suggestion_lines + total_lines.saturating_sub(cursor_row + 1);
         if rows_to_move_up > 0 {
             queue!(out, MoveUp(to_u16(rows_to_move_up)?))?;
         }
@@ -213,15 +284,16 @@ impl EditSession {
         out: &mut impl Write,
         base_prompt: &str,
         vim_enabled: bool,
+        prompt_theme: PromptTheme,
     ) -> io::Result<()> {
         self.clear_render(out)?;
-        let prompt = self.prompt(base_prompt, vim_enabled);
-        let buffer = self.visible_buffer();
-        write!(out, "{prompt}{buffer}")?;
+        let prompt = self.prompt(base_prompt, vim_enabled, prompt_theme);
+        let buffer = self.visible_buffer(prompt_theme);
+        write!(out, "{}{buffer}", prompt.rendered)?;
         writeln!(out)
     }
 
-    fn cursor_layout(&self, prompt: &str) -> (usize, usize, usize) {
+    fn cursor_layout(&self, prompt_width: usize) -> (usize, usize, usize) {
         let active_text = self.active_text();
         let cursor = if self.mode == EditorMode::Command {
             self.command_cursor
@@ -233,7 +305,7 @@ impl EditSession {
         let cursor_row = cursor_prefix.bytes().filter(|byte| *byte == b'\n').count();
         let cursor_col = match cursor_prefix.rsplit_once('\n') {
             Some((_, suffix)) => suffix.chars().count(),
-            None => prompt.chars().count() + cursor_prefix.chars().count(),
+            None => prompt_width + cursor_prefix.chars().count(),
         };
         let total_lines = active_text.bytes().filter(|byte| *byte == b'\n').count() + 1;
         (cursor_row, cursor_col, total_lines)
@@ -248,13 +320,29 @@ enum KeyAction {
     ToggleVim,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SuggestionState {
+    prefix: String,
+    matches: Vec<CompletionCandidate>,
+    selected_index: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SuggestionDisplay {
+    entries: Vec<String>,
+    selected_index: usize,
+    summary: Option<String>,
+}
+
 pub struct LineEditor {
     prompt: String,
-    completions: Vec<String>,
+    prompt_theme: PromptTheme,
+    completions: Vec<CompletionCandidate>,
     history: Vec<String>,
     yank_buffer: YankBuffer,
     vim_enabled: bool,
     completion_state: Option<CompletionState>,
+    suggestion_state: Option<SuggestionState>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -265,16 +353,35 @@ struct CompletionState {
 }
 
 impl LineEditor {
+    #[cfg_attr(not(test), allow(dead_code))]
     #[must_use]
     pub fn new(prompt: impl Into<String>, completions: Vec<String>) -> Self {
+        let completions = completions
+            .into_iter()
+            .map(|completion| CompletionCandidate::new(completion.clone(), completion, ""))
+            .collect();
+        Self::with_completion_candidates(prompt, completions)
+    }
+
+    #[must_use]
+    pub fn with_completion_candidates(
+        prompt: impl Into<String>,
+        completions: Vec<CompletionCandidate>,
+    ) -> Self {
         Self {
             prompt: prompt.into(),
+            prompt_theme: ThemeKind::default().prompt_theme(),
             completions,
             history: Vec::new(),
             yank_buffer: YankBuffer::default(),
             vim_enabled: false,
             completion_state: None,
+            suggestion_state: None,
         }
+    }
+
+    pub fn set_theme(&mut self, theme_kind: ThemeKind) {
+        self.prompt_theme = theme_kind.prompt_theme();
     }
 
     pub fn push_history(&mut self, entry: impl Into<String>) {
@@ -294,7 +401,14 @@ impl LineEditor {
         let _raw_mode = RawModeGuard::new()?;
         let mut stdout = io::stdout();
         let mut session = EditSession::new(self.vim_enabled);
-        session.render(&mut stdout, &self.prompt, self.vim_enabled)?;
+        let suggestions = self.inline_suggestions(&session);
+        session.render(
+            &mut stdout,
+            &self.prompt,
+            self.vim_enabled,
+            self.prompt_theme,
+            suggestions.as_ref(),
+        )?;
 
         loop {
             let Event::Key(key) = event::read()? else {
@@ -306,10 +420,22 @@ impl LineEditor {
 
             match self.handle_key_event(&mut session, key) {
                 KeyAction::Continue => {
-                    session.render(&mut stdout, &self.prompt, self.vim_enabled)?;
+                    let suggestions = self.inline_suggestions(&session);
+                    session.render(
+                        &mut stdout,
+                        &self.prompt,
+                        self.vim_enabled,
+                        self.prompt_theme,
+                        suggestions.as_ref(),
+                    )?;
                 }
                 KeyAction::Submit(line) => {
-                    session.finalize_render(&mut stdout, &self.prompt, self.vim_enabled)?;
+                    session.finalize_render(
+                        &mut stdout,
+                        &self.prompt,
+                        self.vim_enabled,
+                        self.prompt_theme,
+                    )?;
                     return Ok(ReadOutcome::Submit(line));
                 }
                 KeyAction::Cancel => {
@@ -335,7 +461,14 @@ impl LineEditor {
                         }
                     )?;
                     session = EditSession::new(self.vim_enabled);
-                    session.render(&mut stdout, &self.prompt, self.vim_enabled)?;
+                    let suggestions = self.inline_suggestions(&session);
+                    session.render(
+                        &mut stdout,
+                        &self.prompt,
+                        self.vim_enabled,
+                        self.prompt_theme,
+                        suggestions.as_ref(),
+                    )?;
                 }
             }
         }
@@ -432,11 +565,15 @@ impl LineEditor {
                 KeyAction::Continue
             }
             KeyCode::Up => {
-                self.history_up(session);
+                if !self.move_suggestion_selection(session, -1) {
+                    self.history_up(session);
+                }
                 KeyAction::Continue
             }
             KeyCode::Down => {
-                self.history_down(session);
+                if !self.move_suggestion_selection(session, 1) {
+                    self.history_down(session);
+                }
                 KeyAction::Continue
             }
             KeyCode::Home => {
@@ -722,12 +859,7 @@ impl LineEditor {
             self.completion_state = None;
             return;
         };
-        let matches = self
-            .completions
-            .iter()
-            .filter(|candidate| candidate.starts_with(prefix) && candidate.as_str() != prefix)
-            .cloned()
-            .collect::<Vec<_>>();
+        let matches = self.matching_completion_values(prefix);
         if matches.is_empty() {
             self.completion_state = None;
             return;
@@ -742,17 +874,110 @@ impl LineEditor {
             state.next_index += 1;
             state.matches[index].clone()
         } else {
-            let candidate = matches[0].clone();
+            let selected_index = self
+                .suggestion_state
+                .as_ref()
+                .filter(|state| state.prefix == prefix)
+                .map_or(0, |state| {
+                    state.selected_index.min(matches.len().saturating_sub(1))
+                });
+            let candidate = matches[selected_index].clone();
             self.completion_state = Some(CompletionState {
                 prefix: prefix.to_string(),
                 matches,
-                next_index: 1,
+                next_index: selected_index + 1,
             });
             candidate
         };
 
         session.text.replace_range(..session.cursor, &candidate);
         session.cursor = candidate.len();
+    }
+
+    fn inline_suggestions(&mut self, session: &EditSession) -> Option<SuggestionDisplay> {
+        self.refresh_suggestion_state(session)
+            .map(|state| SuggestionDisplay {
+                entries: state
+                    .matches
+                    .iter()
+                    .map(|candidate| candidate.display.clone())
+                    .collect(),
+                selected_index: state.selected_index,
+                summary: state
+                    .matches
+                    .get(state.selected_index)
+                    .map(|candidate| candidate.summary.clone())
+                    .filter(|summary| !summary.trim().is_empty()),
+            })
+    }
+
+    fn matching_completion_values(&self, prefix: &str) -> Vec<String> {
+        self.completions
+            .iter()
+            .filter(|candidate| candidate.value.starts_with(prefix) && candidate.value != prefix)
+            .map(|candidate| candidate.value.clone())
+            .collect()
+    }
+
+    fn matching_completion_candidates(
+        &self,
+        prefix: &str,
+        limit: usize,
+    ) -> Vec<CompletionCandidate> {
+        self.completions
+            .iter()
+            .filter(|candidate| candidate.value.starts_with(prefix) && candidate.value != prefix)
+            .take(limit)
+            .cloned()
+            .collect()
+    }
+
+    fn refresh_suggestion_state(&mut self, session: &EditSession) -> Option<&SuggestionState> {
+        if session.mode == EditorMode::Command {
+            self.suggestion_state = None;
+            return None;
+        }
+
+        let Some(prefix) = slash_command_prefix(&session.text, session.cursor) else {
+            self.suggestion_state = None;
+            return None;
+        };
+
+        let matches = self.matching_completion_candidates(prefix, INLINE_SUGGESTION_LIMIT);
+        if matches.is_empty() {
+            self.suggestion_state = None;
+            return None;
+        }
+
+        let selected_index = self
+            .suggestion_state
+            .as_ref()
+            .filter(|state| state.prefix == prefix && state.matches == matches)
+            .map_or(0, |state| {
+                state.selected_index.min(matches.len().saturating_sub(1))
+            });
+
+        self.suggestion_state = Some(SuggestionState {
+            prefix: prefix.to_string(),
+            matches,
+            selected_index,
+        });
+        self.suggestion_state.as_ref()
+    }
+
+    fn move_suggestion_selection(&mut self, session: &EditSession, delta: isize) -> bool {
+        let Some(state) = self.refresh_suggestion_state(session) else {
+            return false;
+        };
+        let len = state.matches.len();
+        if len <= 1 {
+            return true;
+        }
+        if let Some(state) = self.suggestion_state.as_mut() {
+            state.selected_index =
+                (state.selected_index as isize + delta).rem_euclid(len as isize) as usize;
+        }
+        true
     }
 
     fn history_up(&self, session: &mut EditSession) {
@@ -938,27 +1163,77 @@ fn selection_bounds(text: &str, anchor: usize, cursor: usize) -> Option<(usize, 
     }
 }
 
-fn render_selected_text(text: &str, start: usize, end: usize) -> String {
+fn render_selected_text(text: &str, start: usize, end: usize, prompt_theme: PromptTheme) -> String {
     let mut rendered = String::new();
     let mut in_selection = false;
 
     for (index, ch) in text.char_indices() {
         if !in_selection && index == start {
-            rendered.push_str("\x1b[7m");
+            rendered.push_str(prompt_theme.selection_style);
             in_selection = true;
         }
         if in_selection && index == end {
-            rendered.push_str("\x1b[0m");
+            rendered.push_str(ANSI_RESET);
             in_selection = false;
         }
         rendered.push(ch);
     }
 
     if in_selection {
-        rendered.push_str("\x1b[0m");
+        rendered.push_str(ANSI_RESET);
     }
 
     rendered
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+fn slash_command_suggestions(
+    completions: &[CompletionCandidate],
+    line: &str,
+    pos: usize,
+    limit: usize,
+) -> Vec<String> {
+    if limit == 0 {
+        return Vec::new();
+    }
+
+    let Some(prefix) = slash_command_prefix(line, pos) else {
+        return Vec::new();
+    };
+
+    completions
+        .iter()
+        .filter(|candidate| candidate.value.starts_with(prefix) && candidate.value != prefix)
+        .take(limit)
+        .map(|candidate| candidate.display.clone())
+        .collect()
+}
+
+fn render_inline_suggestions(suggestions: &SuggestionDisplay, prompt_theme: PromptTheme) -> String {
+    let rendered = suggestions
+        .entries
+        .iter()
+        .enumerate()
+        .map(|(index, suggestion)| {
+            if index == suggestions.selected_index {
+                format!(
+                    "{}{suggestion}{ANSI_RESET}{}",
+                    prompt_theme.suggestion_selected_style, prompt_theme.suggestion_color
+                )
+            } else {
+                suggestion.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" · ");
+    format!(
+        "{}commands: {rendered}{ANSI_RESET}",
+        prompt_theme.suggestion_color
+    )
+}
+
+fn render_inline_summary(summary: &str, prompt_theme: PromptTheme) -> String {
+    format!("{}about: {summary}", prompt_theme.suggestion_color)
 }
 
 fn slash_command_prefix(line: &str, pos: usize) -> Option<&str> {
@@ -986,8 +1261,11 @@ fn to_u16(value: usize) -> io::Result<u16> {
 #[cfg(test)]
 mod tests {
     use super::{
-        selection_bounds, slash_command_prefix, EditSession, EditorMode, KeyAction, LineEditor,
+        render_inline_suggestions, render_inline_summary, selection_bounds, slash_command_prefix,
+        slash_command_suggestions, CompletionCandidate, EditSession, EditorMode, KeyAction,
+        LineEditor, SuggestionDisplay, ANSI_RESET,
     };
+    use crate::render::ThemeKind;
     use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
     #[test]
@@ -1008,6 +1286,128 @@ mod tests {
 
         // then
         assert_eq!(result, (Some("/he"), None, None, None));
+    }
+
+    #[test]
+    fn slash_suggestions_follow_prefix() {
+        let suggestions = slash_command_suggestions(
+            &[
+                CompletionCandidate::new("/help", "/help", "Show available slash commands"),
+                CompletionCandidate::new("/hello", "/hello", "Demo alias"),
+                CompletionCandidate::new(
+                    "/theme",
+                    "/theme [dark|light|toggle]",
+                    "Show or switch the CLI color theme",
+                ),
+                CompletionCandidate::new(
+                    "/teleport",
+                    "/teleport <symbol-or-path>",
+                    "Jump to a symbol or path",
+                ),
+            ],
+            "/he",
+            3,
+            5,
+        );
+
+        assert_eq!(suggestions, vec!["/help", "/hello"]);
+    }
+
+    #[test]
+    fn slash_suggestions_hide_exact_match_and_plain_text() {
+        let exact = slash_command_suggestions(
+            &[CompletionCandidate::new(
+                "/help",
+                "/help",
+                "Show available slash commands",
+            )],
+            "/help",
+            5,
+            5,
+        );
+        let plain = slash_command_suggestions(
+            &[CompletionCandidate::new(
+                "/help",
+                "/help",
+                "Show available slash commands",
+            )],
+            "hello",
+            5,
+            5,
+        );
+
+        assert!(exact.is_empty());
+        assert!(plain.is_empty());
+    }
+
+    #[test]
+    fn inline_suggestion_line_uses_muted_prompt_palette_and_highlights_first_item() {
+        let rendered = render_inline_suggestions(
+            &SuggestionDisplay {
+                entries: vec![
+                    "/theme [dark|light|toggle]".to_string(),
+                    "/teleport <symbol-or-path>".to_string(),
+                ],
+                selected_index: 0,
+                summary: Some("Show or switch the CLI color theme".to_string()),
+            },
+            ThemeKind::Light.prompt_theme(),
+        );
+
+        assert!(rendered.contains("commands: "));
+        assert!(rendered.contains("/theme [dark|light|toggle]"));
+        assert!(rendered.contains("/teleport <symbol-or-path>"));
+        assert!(rendered.contains("\x1b[38;2;100;116;139m"));
+        assert!(rendered.contains("\x1b[38;2;35;38;52;48;2;191;222;255m"));
+    }
+
+    #[test]
+    fn inline_summary_uses_muted_prompt_palette() {
+        let rendered = render_inline_summary(
+            "Show or switch the CLI color theme",
+            ThemeKind::Dark.prompt_theme(),
+        );
+
+        assert!(rendered.contains("about: Show or switch the CLI color theme"));
+        assert!(rendered.contains("\x1b[38;2;148;156;187m"));
+    }
+
+    #[test]
+    fn up_down_cycle_visible_suggestions() {
+        let mut editor = LineEditor::with_completion_candidates(
+            "> ",
+            vec![
+                CompletionCandidate::new(
+                    "/theme",
+                    "/theme [dark|light|toggle]",
+                    "Show or switch the CLI color theme",
+                ),
+                CompletionCandidate::new(
+                    "/teleport",
+                    "/teleport <symbol-or-path>",
+                    "Jump to a symbol or path",
+                ),
+            ],
+        );
+        let mut session = EditSession::new(false);
+        session.text = "/t".to_string();
+        session.cursor = session.text.len();
+
+        assert!(editor.move_suggestion_selection(&session, 1));
+        let suggestions = editor
+            .inline_suggestions(&session)
+            .expect("suggestions should exist");
+        assert_eq!(suggestions.selected_index, 1);
+        assert_eq!(
+            suggestions.summary.as_deref(),
+            Some("Jump to a symbol or path")
+        );
+
+        assert!(editor.move_suggestion_selection(&session, -1));
+        let suggestions = editor
+            .inline_suggestions(&session)
+            .expect("suggestions should exist");
+        assert_eq!(suggestions.selected_index, 0);
     }
 
     #[test]
@@ -1109,6 +1509,26 @@ mod tests {
             ),
             Some((0, 8))
         );
+    }
+
+    #[test]
+    fn styled_prompt_reports_visible_width_without_ansi_overhead() {
+        let session = EditSession::new(true);
+        let prompt_theme = ThemeKind::Dark.prompt_theme();
+        let prompt = session.prompt("> ", true, prompt_theme);
+
+        assert!(prompt.rendered.contains(prompt_theme.mode_chip_color));
+        assert!(prompt.rendered.contains(prompt_theme.prompt_accent_color));
+        assert_eq!(prompt.width, "[INSERT] > ".chars().count());
+    }
+
+    #[test]
+    fn selected_text_uses_soft_highlight_palette() {
+        let prompt_theme = ThemeKind::Dark.prompt_theme();
+        let rendered = super::render_selected_text("alpha", 1, 4, prompt_theme);
+
+        assert!(rendered.contains(prompt_theme.selection_style));
+        assert!(rendered.contains(ANSI_RESET));
     }
 
     #[test]
