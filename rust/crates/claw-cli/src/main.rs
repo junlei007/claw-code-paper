@@ -1106,6 +1106,12 @@ struct StatusUsage {
     estimated_tokens: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ContextPressure {
+    estimated_tokens: usize,
+    context_window: u32,
+}
+
 fn format_model_report(model: &str, message_count: usize, turns: u32) -> String {
     format!(
         "Model
@@ -1545,18 +1551,61 @@ fn context_window_for_model(model: &str) -> Option<u32> {
     }
 }
 
+fn context_pressure_for_messages(
+    model: &str,
+    messages: &[ConversationMessage],
+) -> Option<ContextPressure> {
+    context_window_for_model(model).map(|context_window| ContextPressure {
+        estimated_tokens: runtime::estimate_session_tokens(&Session {
+            version: Session::new().version,
+            messages: messages.to_vec(),
+        }),
+        context_window,
+    })
+}
+
+fn context_pressure_label(pressure: ContextPressure) -> &'static str {
+    let ratio = pressure.estimated_tokens as f64 / f64::from(pressure.context_window);
+    if ratio >= 0.9 {
+        "critical"
+    } else if ratio >= 0.75 {
+        "high"
+    } else {
+        "normal"
+    }
+}
+
+fn format_context_pressure_inline(pressure: ContextPressure) -> String {
+    let percent = ((pressure.estimated_tokens as f64 / f64::from(pressure.context_window)) * 100.0)
+        .round() as u32;
+    format!(
+        "{} / {} (~{}%)",
+        pressure.estimated_tokens, pressure.context_window, percent
+    )
+}
+
+fn render_context_pressure_warning(pressure: ContextPressure) -> Option<String> {
+    match context_pressure_label(pressure) {
+        "critical" => Some(format!(
+            "⚠️  Context pressure is critical\n  Session estimate  {}\n  Recommendation    run /compact now or /clear before the next long request",
+            format_context_pressure_inline(pressure)
+        )),
+        "high" => Some(format!(
+            "⚠️  Context pressure is high\n  Session estimate  {}\n  Recommendation    consider /compact before another long turn",
+            format_context_pressure_inline(pressure)
+        )),
+        _ => None,
+    }
+}
+
 fn adjusted_max_tokens_for_request(model: &str, messages: &[ConversationMessage]) -> u32 {
     let base = max_tokens_for_model(model);
-    let Some(context_window) = context_window_for_model(model) else {
+    let Some(pressure) = context_pressure_for_messages(model, messages) else {
         return base;
     };
-
-    let mut session = Session::new();
-    session.messages = messages.to_vec();
-    let estimated_prompt_tokens = runtime::estimate_session_tokens(&session) as u32;
     let safety_buffer = 2_048;
-    let reserved = estimated_prompt_tokens.saturating_add(safety_buffer);
-    let available = context_window.saturating_sub(reserved);
+    let reserved = (pressure.estimated_tokens as u32).saturating_add(safety_buffer);
+    let available = pressure.context_window.saturating_sub(reserved);
 
     if available == 0 {
         256
@@ -1693,6 +1742,14 @@ impl LiveCli {
     }
 
     fn run_turn(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let mut projected_messages = self.runtime.session().messages.clone();
+        projected_messages.push(ConversationMessage::user_text(input.to_string()));
+        if let Some(pressure) = context_pressure_for_messages(&self.model, &projected_messages) {
+            if let Some(warning) = render_context_pressure_warning(pressure) {
+                println!("{warning}");
+                println!();
+            }
+        }
         let mut spinner = Spinner::new();
         let mut stdout = io::stdout();
         spinner.tick(
@@ -2548,6 +2605,17 @@ fn format_status_report(
     permission_mode: &str,
     context: &StatusContext,
 ) -> String {
+    let pressure_line = context_pressure_for_messages(model, &[]).map(|_| {
+        let pressure = ContextPressure {
+            estimated_tokens: usage.estimated_tokens,
+            context_window: context_window_for_model(model).unwrap_or_default(),
+        };
+        format!(
+            "\n  Context usage    {} ({})",
+            format_context_pressure_inline(pressure),
+            context_pressure_label(pressure)
+        )
+    }).unwrap_or_default();
     [
         format!(
             "Status
@@ -2555,8 +2623,8 @@ fn format_status_report(
   Permission mode  {permission_mode}
   Messages         {}
   Turns            {}
-  Estimated tokens {}",
-            usage.message_count, usage.turns, usage.estimated_tokens,
+  Estimated tokens {}{}",
+            usage.message_count, usage.turns, usage.estimated_tokens, pressure_line,
         ),
         format!(
             "Usage
@@ -4753,6 +4821,7 @@ fn format_tool_call_start(name: &str, input: &str) -> String {
             .and_then(|value| value.as_str())
             .unwrap_or("?")
             .to_string(),
+        "TodoWrite" => format_todo_write_start(&parsed),
         _ => summarize_tool_payload(input),
     };
 
@@ -4786,6 +4855,7 @@ fn format_tool_result(name: &str, output: &str, is_error: bool) -> String {
         "edit_file" | "Edit" => format_edit_result(icon, &parsed),
         "glob_search" | "Glob" => format_glob_result(icon, &parsed),
         "grep_search" | "Grep" => format_grep_result(icon, &parsed),
+        "TodoWrite" => format_todo_write_result(icon, &parsed),
         _ => format_generic_tool_result(icon, name, &parsed),
     }
 }
@@ -4817,6 +4887,35 @@ fn format_search_start(label: &str, parsed: &serde_json::Value) -> String {
         .and_then(|value| value.as_str())
         .unwrap_or(".");
     format!("{label} {pattern}\n\x1b[2min {scope}\x1b[0m")
+}
+
+fn format_todo_write_start(parsed: &serde_json::Value) -> String {
+    let todos = parsed
+        .get("todos")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let total = todos.len();
+    let completed = todos
+        .iter()
+        .filter(|todo| {
+            todo.get("status")
+                .and_then(|value| value.as_str())
+                .is_some_and(|status| status == "completed")
+        })
+        .count();
+    let in_progress = todos
+        .iter()
+        .filter(|todo| {
+            todo.get("status")
+                .and_then(|value| value.as_str())
+                .is_some_and(|status| status == "in_progress")
+        })
+        .count();
+    let pending = total.saturating_sub(completed + in_progress);
+    format!(
+        "\x1b[1;35m🗂️ Updating {total} todo item(s)\x1b[0m\n\x1b[2mcompleted {completed} · in progress {in_progress} · pending {pending}\x1b[0m"
+    )
 }
 
 fn format_patch_preview(old_value: &str, new_value: &str) -> Option<String> {
@@ -4983,6 +5082,31 @@ fn format_edit_result(icon: &str, parsed: &serde_json::Value) -> String {
     match preview {
         Some(preview) => format!("{icon} \x1b[1;33m📝 Edited {path}{suffix}\x1b[0m\n{preview}"),
         None => format!("{icon} \x1b[1;33m📝 Edited {path}{suffix}\x1b[0m"),
+    }
+}
+
+fn format_todo_write_result(icon: &str, parsed: &serde_json::Value) -> String {
+    let old_len = parsed
+        .get("oldTodos")
+        .and_then(|value| value.as_array())
+        .map_or(0, Vec::len);
+    let new_len = parsed
+        .get("newTodos")
+        .and_then(|value| value.as_array())
+        .map_or(0, Vec::len);
+    let verification_nudge = parsed
+        .get("verificationNudgeNeeded")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+
+    if verification_nudge {
+        format!(
+            "{icon} \x1b[38;5;245mTodoWrite:\x1b[0m updated todos ({old_len} → {new_len}); verification follow-up recommended"
+        )
+    } else {
+        format!(
+            "{icon} \x1b[38;5;245mTodoWrite:\x1b[0m updated todos ({old_len} → {new_len})"
+        )
     }
 }
 
@@ -6796,6 +6920,27 @@ mod tests {
     }
 
     #[test]
+    fn todo_write_rendering_avoids_raw_json_in_progress_output() {
+        let start = format_tool_call_start(
+            "TodoWrite",
+            r#"{"todos":[{"content":"检查现有代码和数据","status":"completed"},{"content":"整理输出格式","status":"in_progress"}]}"#,
+        );
+        assert!(start.contains("Updating 2 todo item(s)"));
+        assert!(start.contains("completed 1"));
+        assert!(!start.contains("\"todos\""));
+        assert!(!start.contains("\"status\""));
+
+        let done = format_tool_result(
+            "TodoWrite",
+            r#"{"oldTodos":[{"content":"a"}],"newTodos":[{"content":"a"},{"content":"b"}],"verificationNudgeNeeded":true}"#,
+            false,
+        );
+        assert!(done.contains("updated todos (1 → 2)"));
+        assert!(done.contains("verification follow-up recommended"));
+        assert!(!done.contains("\"oldTodos\""));
+    }
+
+    #[test]
     fn tool_rendering_truncates_large_read_output_for_display_only() {
         let content = (0..200)
             .map(|index| format!("line {index:03}"))
@@ -7117,5 +7262,41 @@ mod tests {
         let adjusted = crate::adjusted_max_tokens_for_request("deepseek-chat", &messages);
         assert!(adjusted < 8_192);
         assert!(adjusted >= 256);
+    }
+
+    #[test]
+    fn render_context_pressure_warning_triggers_for_high_pressure() {
+        let warning = crate::render_context_pressure_warning(crate::ContextPressure {
+            estimated_tokens: 110_000,
+            context_window: 131_072,
+        });
+        assert!(warning.is_some());
+        assert!(warning.unwrap().contains("/compact"));
+    }
+
+    #[test]
+    fn status_report_includes_context_usage_for_known_window_models() {
+        let status = format_status_report(
+            "deepseek-chat",
+            StatusUsage {
+                message_count: 12,
+                turns: 4,
+                latest: crate::TokenUsage::default(),
+                cumulative: crate::TokenUsage::default(),
+                estimated_tokens: 110_000,
+            },
+            "workspace-write",
+            &crate::StatusContext {
+                cwd: PathBuf::from("/tmp/demo"),
+                session_path: None,
+                loaded_config_files: 1,
+                discovered_config_files: 1,
+                memory_file_count: 0,
+                project_root: Some(PathBuf::from("/tmp/demo")),
+                git_branch: Some("main".to_string()),
+            },
+        );
+        assert!(status.contains("Context usage"));
+        assert!(status.contains("high"));
     }
 }
