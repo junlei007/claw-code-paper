@@ -174,6 +174,7 @@ Survey research bootstrap 默认会带上这些 provider profile：
 
 - `deepseek`
 - `kimi`
+- `kimi-code`
 - `qwen`
 - `openai-compat`
 
@@ -182,6 +183,9 @@ Survey research bootstrap 默认会带上这些 provider profile：
 ```text
 /provider kimi
 /model kimi-k2.5
+
+/provider kimi-code
+/model kimi-for-coding
 ```
 
 或者：

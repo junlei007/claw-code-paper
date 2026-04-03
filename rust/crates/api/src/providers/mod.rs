@@ -207,6 +207,9 @@ pub fn max_tokens_for_model(model: &str) -> u32 {
     if canonical.contains("deepseek") {
         return 8_192;
     }
+    if canonical.contains("kimi-for-coding") {
+        return 32_768;
+    }
     if canonical.contains("opus") {
         32_000
     } else {
@@ -240,5 +243,6 @@ mod tests {
         assert_eq!(max_tokens_for_model("grok-3"), 64_000);
         assert_eq!(max_tokens_for_model("deepseek-chat"), 8_192);
         assert_eq!(max_tokens_for_model("deepseek-reasoner"), 8_192);
+        assert_eq!(max_tokens_for_model("kimi-for-coding"), 32_768);
     }
 }

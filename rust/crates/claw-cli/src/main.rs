@@ -16,10 +16,10 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use api::{
-    resolve_model_alias, resolve_startup_auth_source, AuthSource, ClawApiClient, ContentBlockDelta,
-    InputContentBlock, InputMessage, MessageRequest, MessageResponse, OpenAiCompatConfig,
-    OutputContentBlock, ProviderClient, StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition,
-    ToolResultContentBlock,
+    max_tokens_for_model, resolve_model_alias, resolve_startup_auth_source, AuthSource,
+    ClawApiClient, ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest,
+    MessageResponse, OpenAiCompatConfig, OutputContentBlock, ProviderClient,
+    StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition, ToolResultContentBlock,
 };
 
 use commands::{
@@ -43,15 +43,6 @@ use serde_json::json;
 use tools::GlobalToolRegistry;
 
 const DEFAULT_MODEL: &str = "claude-opus-4-6";
-fn max_tokens_for_model(model: &str) -> u32 {
-    if model.contains("deepseek") {
-        8_192
-    } else if model.contains("opus") {
-        32_000
-    } else {
-        64_000
-    }
-}
 const DEFAULT_DATE: &str = "2026-03-31";
 const DEFAULT_OAUTH_CALLBACK_PORT: u16 = 4545;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -1508,7 +1499,13 @@ fn run_repl(
                     continue;
                 }
                 editor.push_history(input);
-                cli.run_turn(&trimmed)?;
+                if let Err(error) = cli.run_turn(&trimmed) {
+                    eprintln!("error: {error}");
+                    if let Some(hint) = request_failure_hint(&error.to_string()) {
+                        eprintln!("{hint}");
+                    }
+                    let _ = cli.persist_session();
+                }
             }
             input::ReadOutcome::Cancel => {}
             input::ReadOutcome::Exit => {
@@ -1519,6 +1516,53 @@ fn run_repl(
     }
 
     Ok(())
+}
+
+fn request_failure_hint(error: &str) -> Option<&'static str> {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("maximum context length") || lower.contains("context length") {
+        return Some(
+            "hint: 当前会话上下文过长。可先试 /compact 压缩，或 /clear 开新会话，再重试。",
+        );
+    }
+    if lower.contains("missing") && lower.contains("credentials") {
+        return Some(
+            "hint: 先检查 /provider 当前 profile，以及对应 API key 环境变量是否已导出。",
+        );
+    }
+    None
+}
+
+fn context_window_for_model(model: &str) -> Option<u32> {
+    let canonical = resolve_model_alias(model);
+    let lower = canonical.to_ascii_lowercase();
+    if lower.contains("deepseek") {
+        Some(131_072)
+    } else if lower.contains("kimi-for-coding") {
+        Some(262_144)
+    } else {
+        None
+    }
+}
+
+fn adjusted_max_tokens_for_request(model: &str, messages: &[ConversationMessage]) -> u32 {
+    let base = max_tokens_for_model(model);
+    let Some(context_window) = context_window_for_model(model) else {
+        return base;
+    };
+
+    let mut session = Session::new();
+    session.messages = messages.to_vec();
+    let estimated_prompt_tokens = runtime::estimate_session_tokens(&session) as u32;
+    let safety_buffer = 2_048;
+    let reserved = estimated_prompt_tokens.saturating_add(safety_buffer);
+    let available = context_window.saturating_sub(reserved);
+
+    if available == 0 {
+        256
+    } else {
+        base.min(available.max(256))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -4460,7 +4504,7 @@ impl ApiClient for DefaultRuntimeClient {
         }
         let message_request = MessageRequest {
             model: self.model.clone(),
-            max_tokens: max_tokens_for_model(&self.model),
+            max_tokens: adjusted_max_tokens_for_request(&self.model, &request.messages),
             messages: convert_messages(&request.messages),
             system: (!request.system_prompt.is_empty()).then(|| request.system_prompt.join("\n\n")),
             tools: self
@@ -7056,5 +7100,22 @@ mod tests {
             AssistantEvent::TextDelta(text) if text == "Final answer"
         ));
         assert!(!String::from_utf8(out).expect("utf8").contains("step 1"));
+    }
+
+    #[test]
+    fn request_failure_hint_detects_context_overflow() {
+        let hint = crate::request_failure_hint(
+            "api returned 400 (invalid_request_error): This model's maximum context length is 131072 tokens.",
+        );
+        assert!(hint.is_some());
+        assert!(hint.unwrap().contains("/compact"));
+    }
+
+    #[test]
+    fn adjusted_max_tokens_shrinks_for_large_deepseek_sessions() {
+        let messages = vec![ConversationMessage::user_text("x".repeat(520_000))];
+        let adjusted = crate::adjusted_max_tokens_for_request("deepseek-chat", &messages);
+        assert!(adjusted < 8_192);
+        assert!(adjusted >= 256);
     }
 }

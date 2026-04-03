@@ -330,6 +330,14 @@ fn survey_settings_local_json() -> String {
         "        \"baseUrlEnv\": \"MOONSHOT_BASE_URL\",\n",
         "        \"defaultModel\": \"kimi-k2.5\"\n",
         "      },\n",
+        "      \"kimi-code\": {\n",
+        "        \"type\": \"openai-compat\",\n",
+        "        \"providerName\": \"Kimi Code\",\n",
+        "        \"apiKeyEnv\": \"KIMI_CODE_API_KEY\",\n",
+        "        \"baseUrl\": \"https://api.kimi.com/coding/v1\",\n",
+        "        \"baseUrlEnv\": \"KIMI_CODE_BASE_URL\",\n",
+        "        \"defaultModel\": \"kimi-for-coding\"\n",
+        "      },\n",
         "      \"qwen\": {\n",
         "        \"type\": \"openai-compat\",\n",
         "        \"providerName\": \"Qwen\",\n",
@@ -553,7 +561,7 @@ fn research_workflow_lines(options: &InitOptions) -> Vec<String> {
 
     vec![
         "- Survey profile is enabled; keep provider credentials and local research settings in `.claw/settings.local.json`.".to_string(),
-        "- Built-in provider profiles are scaffolded for DeepSeek, Kimi, Qwen, and a generic OpenAI-compatible backend; switch them with `--provider <profile>` or `/provider <profile>`.".to_string(),
+        "- Built-in provider profiles are scaffolded for DeepSeek, Kimi, Kimi Code, Qwen, and a generic OpenAI-compatible backend; switch them with `--provider <profile>` or `/provider <profile>`.".to_string(),
         "- Default artifact path: `.claw/artifacts/`. Write scored datasets, psychometric outputs, and draft reports there.".to_string(),
         "- Shared plotting helpers live in `.claw/helpers/plotting.py` and `.claw/helpers/plotting.R`; reuse them in generated scripts before drawing Chinese/CJK figures.".to_string(),
         "- Recommended tool order: `survey_metadata` → `survey_score` → `survey_psychometrics` → `survey_report`.".to_string(),
@@ -676,6 +684,7 @@ mod tests {
         assert!(settings.contains("\"research-survey@bundled\": true"));
         assert!(settings.contains("\"default\": \"deepseek\""));
         assert!(settings.contains("\"kimi\""));
+        assert!(settings.contains("\"kimi-code\""));
         assert!(settings.contains("\"qwen\""));
         assert!(root.join(".claw").join("artifacts").is_dir());
         assert!(root
@@ -743,6 +752,7 @@ mod tests {
         assert!(rendered.contains("## Research workflow"));
         assert!(rendered.contains(".claw/settings.local.json"));
         assert!(rendered.contains("--provider <profile>` or `/provider <profile>`"));
+        assert!(rendered.contains("Kimi Code"));
         assert!(rendered.contains(".claw/helpers/plotting.py"));
         assert!(rendered.contains(
             "survey_metadata` → `survey_score` → `survey_psychometrics` → `survey_report"

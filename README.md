@@ -138,6 +138,7 @@ survey_metadata -> survey_score -> survey_psychometrics -> survey_report
 
 - `deepseek`
 - `kimi`
+- `kimi-code`
 - `qwen`
 - `openai-compat`
 
@@ -146,6 +147,9 @@ survey_metadata -> survey_score -> survey_psychometrics -> survey_report
 ```text
 /provider kimi
 /model kimi-k2.5
+
+/provider kimi-code
+/model kimi-for-coding
 
 /provider qwen
 /model qwen-plus

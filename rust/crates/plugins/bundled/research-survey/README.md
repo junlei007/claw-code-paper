@@ -154,7 +154,7 @@ survey_metadata -> survey_score -> survey_psychometrics -> survey_report
 
 ---
 
-## 6. 示例配置：使用 DeepSeek / Kimi / Qwen / OpenAI-compatible 后端
+## 6. 示例配置：使用 DeepSeek / Kimi / Kimi Code / Qwen / OpenAI-compatible 后端
 
 ```json
 {
@@ -176,6 +176,14 @@ survey_metadata -> survey_score -> survey_psychometrics -> survey_report
         "baseUrl": "https://api.moonshot.ai/v1",
         "baseUrlEnv": "MOONSHOT_BASE_URL",
         "defaultModel": "kimi-k2.5"
+      },
+      "kimi-code": {
+        "type": "openai-compat",
+        "providerName": "Kimi Code",
+        "apiKeyEnv": "KIMI_CODE_API_KEY",
+        "baseUrl": "https://api.kimi.com/coding/v1",
+        "baseUrlEnv": "KIMI_CODE_BASE_URL",
+        "defaultModel": "kimi-for-coding"
       },
       "qwen": {
         "type": "openai-compat",
@@ -215,6 +223,9 @@ survey_metadata -> survey_score -> survey_psychometrics -> survey_report
 ```text
 /provider kimi
 /model kimi-k2.5
+
+/provider kimi-code
+/model kimi-for-coding
 
 /provider qwen
 /model qwen-plus
