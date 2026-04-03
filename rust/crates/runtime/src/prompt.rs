@@ -469,6 +469,7 @@ fn render_research_section(config: &RuntimeConfig) -> String {
         lines.extend(prepend_bullets(vec![
             "Ask for or infer scale metadata carefully: item groups, reverse-coded items, response scales, and missing-value conventions.".to_string(),
             "Use Python-style tools for ingestion/cleaning/visualization and R-style tools for psychometrics/CFA when available.".to_string(),
+            "When generating plots with Chinese or other CJK labels, configure an explicit fallback font stack (for example: PingFang SC, Hiragino Sans GB, Microsoft YaHei, SimHei, Noto Sans CJK) and set matplotlib/seaborn minus-sign handling so exported figures do not show garbled text.".to_string(),
             "Report reliability metrics, validity pre-checks, model-fit indices, and any convergence or identification warnings explicitly.".to_string(),
             "Do not overstate findings: distinguish what the statistics show from what still needs domain interpretation.".to_string(),
         ]));
@@ -815,6 +816,7 @@ mod tests {
         assert!(prompt.contains("# Research mode"));
         assert!(prompt.contains("Research profile: survey"));
         assert!(prompt.contains("Survey analysis operating rules"));
+        assert!(prompt.contains("configure an explicit fallback font stack"));
         assert!(prompt.contains("Artifacts directory: .claw/artifacts"));
 
         fs::remove_dir_all(root).expect("cleanup temp dir");

@@ -5,6 +5,7 @@ use crate::args::{OutputFormat, PermissionMode};
 use crate::input::{LineEditor, ReadOutcome};
 use crate::render::{Spinner, TerminalRenderer};
 use runtime::{ConversationClient, ConversationMessage, RuntimeError, StreamEvent, UsageSummary};
+use serde_json::Value;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionConfig {
@@ -237,7 +238,7 @@ impl CliApp {
                     let _ = writeln!(out);
                 }
                 let _ = tool_spinner.tick(
-                    &format!("Running tool `{name}` with {input}"),
+                    &format!("Running tool `{name}` · {}", summarize_tool_input(&name, &input)),
                     renderer.color_theme(),
                     out,
                 );
@@ -253,7 +254,8 @@ impl CliApp {
                     format!("Tool `{name}` completed")
                 };
                 let _ = tool_spinner.finish(&label, renderer.color_theme(), out);
-                let rendered_output = format!("### Tool `{name}`\n\n```text\n{output}\n```\n");
+                let rendered_output =
+                    format!("### Tool `{name}`\n\n{}\n", format_tool_result_preview(&name, &output, is_error));
                 let _ = renderer.stream_markdown(&rendered_output, out);
             }
             StreamEvent::Usage(usage) => {
@@ -357,13 +359,261 @@ impl CliApp {
     }
 }
 
+fn summarize_tool_input(name: &str, input: &str) -> String {
+    let parsed = serde_json::from_str::<Value>(input).unwrap_or(Value::String(input.to_string()));
+    match name {
+        "read_file" | "Read" => format!("reading {}", extract_tool_path(&parsed)),
+        "write_file" | "Write" => format!("writing {}", extract_tool_path(&parsed)),
+        "edit_file" | "Edit" => format!("editing {}", extract_tool_path(&parsed)),
+        "glob_search" | "Glob" => format!(
+            "glob `{}` in {}",
+            parsed
+                .get("pattern")
+                .and_then(Value::as_str)
+                .unwrap_or("?"),
+            parsed.get("path").and_then(Value::as_str).unwrap_or(".")
+        ),
+        "grep_search" | "Grep" => format!(
+            "grep `{}` in {}",
+            parsed
+                .get("pattern")
+                .and_then(Value::as_str)
+                .unwrap_or("?"),
+            parsed.get("path").and_then(Value::as_str).unwrap_or(".")
+        ),
+        "bash" | "Bash" => parsed
+            .get("command")
+            .and_then(Value::as_str)
+            .map_or_else(|| "running shell command".to_string(), truncate_for_summary),
+        "TodoWrite" => parsed
+            .get("todos")
+            .and_then(Value::as_array)
+            .map_or_else(|| "updating todos".to_string(), |todos| {
+                format!("updating {} todo item(s)", todos.len())
+            }),
+        _ => summarize_json_value(&parsed),
+    }
+}
+
+fn format_tool_result_preview(name: &str, output: &str, is_error: bool) -> String {
+    if is_error {
+        return format!("```text\n{}\n```", truncate_block(output, 16, 1200));
+    }
+
+    let parsed = serde_json::from_str::<Value>(output).unwrap_or(Value::String(output.to_string()));
+    match name {
+        "glob_search" | "Glob" => format_glob_result(&parsed),
+        "read_file" | "Read" => format_read_result(&parsed),
+        "write_file" | "Write" => format_write_result(&parsed),
+        "edit_file" | "Edit" => format_edit_result(&parsed),
+        "TodoWrite" => format_todo_write_result(&parsed),
+        _ => match parsed {
+            Value::Object(_) | Value::Array(_) => summarize_json_value(&parsed),
+            Value::String(text) => {
+                if text.contains('\n') {
+                    format!("```text\n{}\n```", truncate_block(&text, 20, 1600))
+                } else {
+                    truncate_for_summary(&text)
+                }
+            }
+            Value::Null => "No output.".to_string(),
+            other => other.to_string(),
+        },
+    }
+}
+
+fn extract_tool_path(parsed: &Value) -> String {
+    parsed
+        .get("file_path")
+        .or_else(|| parsed.get("filePath"))
+        .or_else(|| parsed.get("path"))
+        .and_then(Value::as_str)
+        .unwrap_or("?")
+        .to_string()
+}
+
+fn format_glob_result(parsed: &Value) -> String {
+    let num_files = parsed.get("numFiles").and_then(Value::as_u64).unwrap_or(0);
+    let mut lines = vec![format!("Matched {num_files} file(s).")];
+    if let Some(files) = parsed.get("filenames").and_then(Value::as_array) {
+        let preview = files
+            .iter()
+            .filter_map(Value::as_str)
+            .take(5)
+            .map(|path| format!("- `{path}`"))
+            .collect::<Vec<_>>();
+        if !preview.is_empty() {
+            lines.push(preview.join("\n"));
+        }
+    }
+    lines.join("\n\n")
+}
+
+fn format_read_result(parsed: &Value) -> String {
+    let file = parsed.get("file").unwrap_or(parsed);
+    let path = extract_tool_path(file);
+    let start_line = file.get("startLine").and_then(Value::as_u64).unwrap_or(1);
+    let num_lines = file.get("numLines").and_then(Value::as_u64).unwrap_or(0);
+    let total_lines = file
+        .get("totalLines")
+        .and_then(Value::as_u64)
+        .unwrap_or(num_lines);
+    let end_line = start_line.saturating_add(num_lines.saturating_sub(1));
+    let content = file.get("content").and_then(Value::as_str).unwrap_or_default();
+    format!(
+        "Read `{path}` (lines {}-{} of {}).\n\n```text\n{}\n```",
+        start_line,
+        end_line.max(start_line),
+        total_lines,
+        truncate_block(content, 32, 1800)
+    )
+}
+
+fn format_write_result(parsed: &Value) -> String {
+    let path = extract_tool_path(parsed);
+    let kind = parsed.get("type").and_then(Value::as_str).unwrap_or("write");
+    let lines = parsed
+        .get("content")
+        .and_then(Value::as_str)
+        .map_or(0, |content| content.lines().count());
+    match kind {
+        "create" => format!("Created `{path}` ({lines} lines)."),
+        _ => format!("Updated `{path}` ({lines} lines)."),
+    }
+}
+
+fn format_edit_result(parsed: &Value) -> String {
+    let path = extract_tool_path(parsed);
+    let replace_all = parsed
+        .get("replaceAll")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if replace_all {
+        format!("Edited `{path}` (replace all).")
+    } else {
+        format!("Edited `{path}`.")
+    }
+}
+
+fn format_todo_write_result(parsed: &Value) -> String {
+    let old_len = parsed
+        .get("oldTodos")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let new_len = parsed
+        .get("newTodos")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    let verification_nudge = parsed
+        .get("verificationNudgeNeeded")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    if verification_nudge {
+        format!("Updated todos ({old_len} → {new_len}). Verification follow-up is recommended.")
+    } else {
+        format!("Updated todos ({old_len} → {new_len}).")
+    }
+}
+
+fn summarize_json_value(value: &Value) -> String {
+    match value {
+        Value::Object(map) => {
+            let preferred = [
+                "type",
+                "status",
+                "result",
+                "message",
+                "filePath",
+                "path",
+                "numFiles",
+                "numMatches",
+                "durationMs",
+                "truncated",
+            ];
+            let mut parts = preferred
+                .iter()
+                .filter_map(|key| {
+                    map.get(*key).map(|val| match val {
+                        Value::String(text) => format!("{key}={}", truncate_for_summary(text)),
+                        Value::Number(num) => format!("{key}={num}"),
+                        Value::Bool(flag) => format!("{key}={flag}"),
+                        Value::Null => format!("{key}=null"),
+                        Value::Array(items) => format!("{key}=[{} item(s)]", items.len()),
+                        Value::Object(_) => format!("{key}={{…}}"),
+                    })
+                })
+                .collect::<Vec<_>>();
+            if parts.is_empty() {
+                let keys = map.keys().take(6).cloned().collect::<Vec<_>>().join(", ");
+                if keys.is_empty() {
+                    "structured output".to_string()
+                } else {
+                    format!("structured output ({keys})")
+                }
+            } else {
+                parts.truncate(6);
+                parts.join(" · ")
+            }
+        }
+        Value::Array(items) => format!("structured output [{} item(s)]", items.len()),
+        Value::String(text) => truncate_for_summary(text),
+        Value::Null => "null".to_string(),
+        other => other.to_string(),
+    }
+}
+
+fn truncate_for_summary(text: &str) -> String {
+    let limit = 100usize;
+    let mut chars = text.chars();
+    let short = chars.by_ref().take(limit).collect::<String>();
+    if chars.next().is_some() {
+        format!("{short}…")
+    } else {
+        short
+    }
+}
+
+fn truncate_block(text: &str, max_lines: usize, max_chars: usize) -> String {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let mut used_chars = 0usize;
+    let mut lines = Vec::new();
+    let mut truncated = false;
+    for (index, line) in trimmed.lines().enumerate() {
+        if index >= max_lines || used_chars >= max_chars {
+            truncated = true;
+            break;
+        }
+        let remaining = max_chars.saturating_sub(used_chars);
+        let line_short = if line.chars().count() > remaining {
+            truncated = true;
+            line.chars().take(remaining).collect::<String>()
+        } else {
+            line.to_string()
+        };
+        used_chars += line_short.chars().count() + 1;
+        lines.push(line_short);
+    }
+    let mut result = lines.join("\n");
+    if truncated {
+        result.push_str("\n… output truncated for display.");
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
 
     use crate::args::{OutputFormat, PermissionMode};
 
-    use super::{CommandResult, SessionConfig, SlashCommand};
+    use super::{
+        format_tool_result_preview, summarize_tool_input, CommandResult, SessionConfig,
+        SlashCommand,
+    };
 
     #[test]
     fn parses_required_slash_commands() {
@@ -398,5 +648,25 @@ mod tests {
         assert_eq!(config.model, "sonnet");
         assert_eq!(config.permission_mode, PermissionMode::DangerFullAccess);
         assert_eq!(config.config, Some(PathBuf::from("settings.toml")));
+    }
+
+    #[test]
+    fn tool_start_summary_avoids_dumping_raw_json() {
+        let summary = summarize_tool_input(
+            "TodoWrite",
+            r#"{"todos":[{"content":"a","status":"completed"},{"content":"b","status":"in_progress"}]}"#,
+        );
+        assert_eq!(summary, "updating 2 todo item(s)");
+    }
+
+    #[test]
+    fn tool_result_preview_summarizes_todo_write_json() {
+        let preview = format_tool_result_preview(
+            "TodoWrite",
+            r#"{"oldTodos":[{"content":"a"}],"newTodos":[{"content":"a"},{"content":"b"}],"verificationNudgeNeeded":true}"#,
+            false,
+        );
+        assert!(preview.contains("Updated todos (1 → 2)"));
+        assert!(!preview.contains("\"oldTodos\""));
     }
 }
