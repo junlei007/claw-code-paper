@@ -717,6 +717,51 @@ def resolve_quality_profile(payload: dict[str, Any]) -> str:
     return "ssci-default"
 
 
+def normalize_string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    for item in value:
+        if isinstance(item, str) and item.strip():
+            result.append(item.strip())
+    return result
+
+
+def normalize_visual_artifacts(
+    items: Any,
+    workspace_root: Path,
+    kind: str,
+) -> list[dict[str, Any]]:
+    if not isinstance(items, list):
+        return []
+    normalized: list[dict[str, Any]] = []
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            continue
+        raw_path = first_nonempty(item.get("artifactPath"), item.get("path"))
+        resolved_path = None
+        relative_path = None
+        if isinstance(raw_path, str) and raw_path.strip():
+            resolved_path = resolve_output_path(raw_path, workspace_root)
+            relative_path = workspace_relative_path(resolved_path)
+        normalized.append(
+            {
+                "kind": kind,
+                "index": index,
+                "title": first_nonempty(item.get("title"), item.get("label"), f"{kind}-{index}"),
+                "artifactPath": str(resolved_path) if resolved_path else None,
+                "workspaceRelativePath": relative_path,
+                "caption": item.get("caption") if isinstance(item.get("caption"), str) else None,
+                "sourceMetrics": normalize_string_list(item.get("sourceMetrics")),
+                "sourceColumns": normalize_string_list(item.get("sourceColumns")),
+                "expectedValues": item.get("expectedValues")
+                if isinstance(item.get("expectedValues"), dict)
+                else {},
+            }
+        )
+    return normalized
+
+
 def build_report_input(
     payload: dict[str, Any],
     dataset: dict[str, Any],
@@ -724,6 +769,7 @@ def build_report_input(
     results: dict[str, Any],
     notes: list[str],
     quality_profile: str,
+    workspace_root: Path,
 ) -> dict[str, Any]:
     return {
         "title": payload.get("title") or "Survey Analysis Report",
@@ -754,8 +800,8 @@ def build_report_input(
             "warnings": results.get("warnings") if isinstance(results.get("warnings"), list) else [],
         },
         "notes": notes,
-        "figures": payload.get("figures") if isinstance(payload.get("figures"), list) else [],
-        "tables": payload.get("tables") if isinstance(payload.get("tables"), list) else [],
+        "figures": normalize_visual_artifacts(payload.get("figures"), workspace_root, "figure"),
+        "tables": normalize_visual_artifacts(payload.get("tables"), workspace_root, "table"),
     }
 
 
@@ -983,14 +1029,67 @@ def figure_accuracy_review(report_input: dict[str, Any]) -> dict[str, Any]:
             "issues": [],
             "checksRun": 0,
         }
+    issues: list[str] = []
+    passed_checks = 0
+    total_checks = 0
+    result_values = report_input.get("results", {})
+
+    for artifact in [*figures, *tables]:
+        title = artifact.get("title") or f"{artifact.get('kind', 'artifact')}-{artifact.get('index', '?')}"
+        artifact_path = artifact.get("artifactPath")
+        total_checks += 1
+        if artifact_path:
+            if Path(str(artifact_path)).exists():
+                passed_checks += 1
+            else:
+                issues.append(f"{title}: referenced artifact file is missing ({artifact_path}).")
+        else:
+            issues.append(f"{title}: artifactPath/path is missing.")
+
+        source_metrics = artifact.get("sourceMetrics") if isinstance(artifact.get("sourceMetrics"), list) else []
+        total_checks += 1
+        if source_metrics:
+            missing_metrics = [
+                metric
+                for metric in source_metrics
+                if result_values.get(metric) in (None, "")
+            ]
+            if missing_metrics:
+                issues.append(f"{title}: sourceMetrics missing from structured results: {', '.join(missing_metrics)}.")
+            else:
+                passed_checks += 1
+        else:
+            issues.append(f"{title}: sourceMetrics should be declared for deterministic consistency review.")
+
+        expected_values = artifact.get("expectedValues") if isinstance(artifact.get("expectedValues"), dict) else {}
+        if expected_values:
+            total_checks += len(expected_values)
+            for metric, expected in expected_values.items():
+                actual = result_values.get(metric)
+                if values_match_with_tolerance(actual, expected):
+                    passed_checks += 1
+                else:
+                    issues.append(
+                        f"{title}: expectedValues mismatch for `{metric}` (expected {expected}, got {actual})."
+                    )
+
+    score = round((passed_checks / total_checks) * 100) if total_checks else None
+    verdict = "pass" if total_checks and not issues else "revise"
     return {
-        "score": 50,
-        "verdict": "revise",
-        "issues": [
-            "Figure/table consistency review is declared in the contract but not yet fully implemented for this method."
-        ],
-        "checksRun": 1,
+        "score": score,
+        "verdict": verdict,
+        "issues": issues,
+        "checksRun": total_checks,
     }
+
+
+def values_match_with_tolerance(actual: Any, expected: Any, tolerance: float = 0.005) -> bool:
+    if actual is None and expected is None:
+        return True
+    try:
+        return abs(float(actual) - float(expected)) <= tolerance
+    except Exception:
+        return str(actual).strip() == str(expected).strip()
 
 
 def build_review_result(report_input: dict[str, Any], markdown: str) -> dict[str, Any]:
@@ -1059,6 +1158,7 @@ def render_report(
         results=results,
         notes=notes,
         quality_profile=quality_profile,
+        workspace_root=workspace_root,
     )
     sections = build_report_sections(report_input)
     replacements = {

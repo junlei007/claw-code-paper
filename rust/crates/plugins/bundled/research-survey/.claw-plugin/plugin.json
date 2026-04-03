@@ -275,6 +275,39 @@
           "results": {
             "type": "object"
           },
+          "figures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": { "type": "string" },
+                "artifactPath": { "type": "string" },
+                "caption": { "type": "string" },
+                "sourceMetrics": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "expectedValues": { "type": "object" }
+              },
+              "additionalProperties": true
+            }
+          },
+          "tables": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": { "type": "string" },
+                "artifactPath": { "type": "string" },
+                "sourceMetrics": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "expectedValues": { "type": "object" }
+              },
+              "additionalProperties": true
+            }
+          },
           "qualityProfile": {
             "type": "string"
           },

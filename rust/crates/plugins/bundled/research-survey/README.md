@@ -425,6 +425,7 @@ printf '%s' '{
 - `datasetPath`
 - `datasetSummary`
 - `results`
+- `figures` / `tables`（可选，用于 deterministic consistency review）
 - `notes`
 - `outputPath`
 
@@ -441,6 +442,12 @@ printf '%s' '{
 - 后续是否需要 targeted revision
 
 当前还会在 review 失败时自动做**一轮有界定向修订**，然后把修订后的结果重新写回最终 markdown 和 review artifact。
+
+如果你同时提供 figure / table metadata，review 还会额外检查：
+
+- artifact 文件是否存在
+- `sourceMetrics` 是否真的来自结构化结果
+- `expectedValues` 是否和结构化结果一致（带小范围容差）
 
 ---
 

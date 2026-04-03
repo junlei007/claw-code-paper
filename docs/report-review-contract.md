@@ -91,6 +91,35 @@ This gate asks:
 
 This gate should become as deterministic as possible.
 
+### Recommended figure/table metadata for deterministic review
+
+```json
+{
+  "title": "CFA fit summary table",
+  "artifactPath": ".claw/artifacts/cfa-fit-table.md",
+  "sourceMetrics": ["cfi", "tli", "rmsea", "srmr"],
+  "expectedValues": {
+    "cfi": 0.973,
+    "tli": 0.961
+  }
+}
+```
+
+Minimum useful fields:
+
+- `artifactPath`
+- `sourceMetrics`
+
+Optional but high-value field:
+
+- `expectedValues`
+
+The deterministic gate should at least verify:
+
+- artifact file exists
+- each `sourceMetric` is present in structured results
+- each declared `expectedValue` matches the structured result within a small tolerance
+
 ### 2. Structure quality
 
 This gate asks:
