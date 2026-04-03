@@ -80,6 +80,7 @@ survey_metadata
 说明文档：
 
 - [`../docs/project-skill-synthesis.md`](../docs/project-skill-synthesis.md)
+- [`../docs/questionnaire-sem-rehearsal.md`](../docs/questionnaire-sem-rehearsal.md)
 - [`../docs/questionnaire-mediation-moderation-rehearsal.md`](../docs/questionnaire-mediation-moderation-rehearsal.md)
 
 ---

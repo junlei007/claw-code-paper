@@ -147,6 +147,7 @@ The following categories are expected to be needed, but are not currently expose
 | Method area | Status | Recommended path |
 | --- | --- | --- |
 | EFA / factor extraction / rotation | `planned` | external plugin first, promote if reused broadly |
+| questionnaire SEM / CFA / invariance | `manual` / `skill-first` | start from [`./questionnaire-sem-rehearsal.md`](./questionnaire-sem-rehearsal.md) and [`../examples/project-skills/questionnaire-sem-sop/`](../examples/project-skills/questionnaire-sem-sop/) |
 | regression / mediation / moderation | `external` | start from [`../examples/external-plugins/research-regression/`](../examples/external-plugins/research-regression/) and expand only after the contract stabilizes |
 | grouped comparisons / ANOVA variants | `planned` | external plugin first |
 | publication-grade table generation | `planned` | plugin if output contract stabilizes |

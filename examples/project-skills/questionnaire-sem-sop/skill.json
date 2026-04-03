@@ -1,0 +1,55 @@
+{
+  "description": "Governed workflow for questionnaire-based CFA and SEM with an R/lavaan-first execution path.",
+  "domain": "survey",
+  "evaluation_examples": [
+    "Primary project example: stress, coping, and burnout modeled with latent CFA + SEM paths.",
+    "Held-out example: compare configural, metric, and scalar invariance across gender groups before interpreting structural differences."
+  ],
+  "failure_checks": [
+    "Stop if construct-to-item mapping is ambiguous or reverse-key handling is unverified.",
+    "Stop if the project requests group comparisons without a measurement invariance plan."
+  ],
+  "generated_at": "2026-04-03T02:48:14Z",
+  "generated_by": "claw project-skill init",
+  "held_out_validation_status": "passed",
+  "input_expectations": [
+    "Scored questionnaire dataset or scoring-ready dataset plus codebook",
+    "Explicit construct definitions and indicator-to-factor mapping"
+  ],
+  "limits": [
+    "This skill does not replace statistical review, publication judgment, or advanced SEM diagnostics."
+  ],
+  "maturity_level": "project",
+  "name": "questionnaire-sem-sop",
+  "outputs": [
+    "Model specification note",
+    "Fit summary with warnings and standardized effects",
+    "Interpretation checklist for CFA/SEM/invariance conclusions"
+  ],
+  "source_materials": [
+    {
+      "exists": true,
+      "path": "../docs/questionnaire-sem-notes.md",
+      "sha256": "4e9b920bdf4d9b20fb0ff4e1598d5cbdcd8104d5354fed688305d078691e79e4"
+    },
+    {
+      "exists": true,
+      "path": "../docs/research-method-standards.md",
+      "sha256": "8223885b1d76ee9c65da2fa3f3df0637957aece16f8fe723be303844a480d812"
+    },
+    {
+      "exists": true,
+      "path": "../docs/project-skill-synthesis.md",
+      "sha256": "6625f3ee755659b62c4c341d5c060c241af25a14649432c89ac37e26b1098a3f"
+    }
+  ],
+  "title": "Questionnaire SEM SOP",
+  "use_when": "Use when a questionnaire project needs CFA, SEM, indirect effects, or multi-group invariance planning before a stable plugin contract exists.",
+  "verification_status": "held-out-validated",
+  "workflow": [
+    "Confirm construct definitions, scoring direction, reverse-key handling, and missing-data policy before modeling.",
+    "Choose observed vs latent framing explicitly, and default SEM fitting to the R/lavaan path.",
+    "Fit CFA before structural claims when latent constructs are central, then document fit indices, loadings, and warnings.",
+    "For multi-group requests, record an invariance plan before comparing latent means or structural paths."
+  ]
+}

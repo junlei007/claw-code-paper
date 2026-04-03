@@ -106,10 +106,12 @@ The promote command updates metadata and re-runs the same governance gates used 
 
 There is now a concrete questionnaire example for this governance loop:
 
+- [`./questionnaire-sem-rehearsal.md`](./questionnaire-sem-rehearsal.md)
+- [`../examples/project-skills/questionnaire-sem-sop/`](../examples/project-skills/questionnaire-sem-sop/)
 - [`./questionnaire-mediation-moderation-rehearsal.md`](./questionnaire-mediation-moderation-rehearsal.md)
 - [`../examples/project-skills/questionnaire-mediation-moderation-sop/`](../examples/project-skills/questionnaire-mediation-moderation-sop/)
 
-It demonstrates a realistic **skill-first** workflow for mediation / moderation requests that are not yet stable enough to freeze into a plugin contract.
+They demonstrate realistic **skill-first** workflows for SEM / CFA / invariance and mediation / moderation requests that are not yet stable enough to freeze into a plugin contract.
 
 ---
 

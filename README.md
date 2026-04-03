@@ -348,9 +348,11 @@ cd rust
 ### 面向 skill / plugin 扩展
 
 - [`docs/project-skill-synthesis.md`](docs/project-skill-synthesis.md)
+- [`docs/questionnaire-sem-rehearsal.md`](docs/questionnaire-sem-rehearsal.md)
 - [`docs/questionnaire-mediation-moderation-rehearsal.md`](docs/questionnaire-mediation-moderation-rehearsal.md)
 - [`docs/self-extension-evaluation-checklist.md`](docs/self-extension-evaluation-checklist.md)
 - [`docs/research-extension-demo.md`](docs/research-extension-demo.md)
+- [`examples/project-skills/questionnaire-sem-sop/README.md`](examples/project-skills/questionnaire-sem-sop/README.md)
 - [`examples/project-skills/questionnaire-mediation-moderation-sop/README.md`](examples/project-skills/questionnaire-mediation-moderation-sop/README.md)
 - [`examples/external-plugins/research-regression/README.md`](examples/external-plugins/research-regression/README.md)
 

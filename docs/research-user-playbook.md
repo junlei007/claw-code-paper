@@ -106,6 +106,7 @@ cd rust
 进一步看：
 
 - [`./project-skill-synthesis.md`](./project-skill-synthesis.md)
+- [`./questionnaire-sem-rehearsal.md`](./questionnaire-sem-rehearsal.md)
 - [`./questionnaire-mediation-moderation-rehearsal.md`](./questionnaire-mediation-moderation-rehearsal.md)
 - [`./research-extension-demo.md`](./research-extension-demo.md)
 
