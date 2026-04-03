@@ -1128,12 +1128,86 @@ Usage
     )
 }
 
+fn format_provider_report(
+    current_provider: Option<&str>,
+    current_model: &str,
+    runtime_config: &RuntimeConfig,
+    message_count: usize,
+    turns: u32,
+) -> String {
+    let default_provider = runtime_config
+        .providers()
+        .default_profile()
+        .unwrap_or("none");
+    let current_provider = current_provider.unwrap_or("auto");
+    let mut lines = vec![
+        "Provider".to_string(),
+        format!("  Current profile  {current_provider}"),
+        format!("  Active model     {current_model}"),
+        format!("  Default profile  {default_provider}"),
+        format!("  Session messages {message_count}"),
+        format!("  Session turns    {turns}"),
+        String::new(),
+        "Profiles".to_string(),
+    ];
+
+    if runtime_config.providers().profiles().is_empty() {
+        lines.push("  (no configured provider profiles)".to_string());
+    } else {
+        for (profile_id, profile) in runtime_config.providers().profiles() {
+            let marker = if Some(profile_id.as_str())
+                == runtime_config.providers().default_profile()
+                && Some(profile_id.as_str()) == Some(current_provider)
+            {
+                "*"
+            } else if Some(profile_id.as_str()) == Some(current_provider) {
+                ">"
+            } else if Some(profile_id.as_str()) == runtime_config.providers().default_profile() {
+                "•"
+            } else {
+                " "
+            };
+            let default_model = profile.default_model().unwrap_or("inherit runtime default");
+            lines.push(format!(
+                "  {marker} {:<14} {:<18} model: {default_model}",
+                profile_id,
+                profile.provider_name()
+            ));
+        }
+        lines.push("  Legend           > current · • default · * current+default".to_string());
+    }
+
+    lines.push(String::new());
+    lines.push("Usage".to_string());
+    lines.push("  Inspect current provider with /provider".to_string());
+    lines.push("  Switch providers with /provider <profile>".to_string());
+    lines.join("\n")
+}
+
 fn format_model_switch_report(previous: &str, next: &str, message_count: usize) -> String {
     format!(
         "Model updated
   Previous         {previous}
   Current          {next}
   Preserved msgs   {message_count}"
+    )
+}
+
+fn format_provider_switch_report(
+    previous_provider: Option<&str>,
+    next_provider: &str,
+    previous_model: &str,
+    next_model: &str,
+    message_count: usize,
+) -> String {
+    format!(
+        "Provider updated
+  Previous         {}
+  Current          {next_provider}
+  Previous model   {previous_model}
+  Active model     {next_model}
+  Preserved msgs   {message_count}",
+        previous_provider.unwrap_or("auto")
     )
 }
 
@@ -1398,6 +1472,7 @@ fn run_resume_command(
         | SlashCommand::DebugToolCall
         | SlashCommand::Resume { .. }
         | SlashCommand::Model { .. }
+        | SlashCommand::Provider { .. }
         | SlashCommand::Permissions { .. }
         | SlashCommand::Session { .. }
         | SlashCommand::Plugins { .. }
@@ -1690,6 +1765,7 @@ impl LiveCli {
                 false
             }
             SlashCommand::Model { model } => self.set_model(model)?,
+            SlashCommand::Provider { profile } => self.set_provider(profile)?,
             SlashCommand::Permissions { mode } => self.set_permissions(mode)?,
             SlashCommand::Clear { confirm } => self.clear_session(confirm)?,
             SlashCommand::Cost => {
@@ -1816,6 +1892,73 @@ impl LiveCli {
             "{}",
             format_model_switch_report(&previous, &model, message_count)
         );
+        Ok(true)
+    }
+
+    fn set_provider(
+        &mut self,
+        profile: Option<String>,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let Some(profile) = profile else {
+            println!(
+                "{}",
+                format_provider_report(
+                    self.provider.as_deref(),
+                    &self.model,
+                    &self.runtime_config,
+                    self.runtime.session().messages.len(),
+                    self.runtime.usage().turns(),
+                )
+            );
+            return Ok(false);
+        };
+
+        if self.provider.as_deref() == Some(profile.as_str()) {
+            println!(
+                "{}",
+                format_provider_report(
+                    self.provider.as_deref(),
+                    &self.model,
+                    &self.runtime_config,
+                    self.runtime.session().messages.len(),
+                    self.runtime.usage().turns(),
+                )
+            );
+            return Ok(false);
+        }
+
+        self.reload_runtime_state()?;
+        let selection =
+            resolve_client_selection(&self.runtime_config, None, Some(profile.clone()))?;
+        let previous_provider = self.provider.clone();
+        let previous_model = self.model.clone();
+        let session = self.runtime.session().clone();
+        let message_count = session.messages.len();
+        self.runtime = build_runtime(
+            session,
+            selection.clone(),
+            self.system_prompt.clone(),
+            true,
+            true,
+            self.allowed_tools.clone(),
+            self.permission_mode,
+            None,
+            self.feature_config.clone(),
+            self.tool_registry.clone(),
+        )?;
+        self.provider = selection.provider_id.clone();
+        self.model.clone_from(&selection.model);
+        println!(
+            "{}",
+            format_provider_switch_report(
+                previous_provider.as_deref(),
+                self.provider.as_deref().unwrap_or(profile.as_str()),
+                &previous_model,
+                &self.model,
+                message_count,
+            )
+        );
+        self.persist_session()?;
         Ok(true)
     }
 
@@ -5255,7 +5398,8 @@ mod tests {
         describe_tool_progress, doctor_project_skill, filter_tool_specs, format_compact_report,
         format_cost_report, format_internal_prompt_progress_line, format_model_report,
         format_model_switch_report, format_permissions_report, format_permissions_switch_report,
-        format_resume_report, format_status_report, format_tool_call_start, format_tool_result,
+        format_provider_report, format_provider_switch_report, format_resume_report,
+        format_status_report, format_tool_call_start, format_tool_result,
         normalize_permission_mode, parse_args, parse_git_status_metadata, permission_policy,
         print_help_to, promote_project_skill, push_output_block, render_config_report,
         render_memory_report, render_repl_help, resolve_client_selection, resolve_model_alias,
@@ -6202,6 +6346,7 @@ mod tests {
         assert!(help.contains("/help"));
         assert!(help.contains("/status"));
         assert!(help.contains("/model [model]"));
+        assert!(help.contains("/provider [profile]"));
         assert!(help.contains("/permissions [read-only|workspace-write|danger-full-access]"));
         assert!(help.contains("/clear [--confirm]"));
         assert!(help.contains("/cost"));
@@ -6330,6 +6475,69 @@ mod tests {
         assert!(report.contains("Previous         sonnet"));
         assert!(report.contains("Current          opus"));
         assert!(report.contains("Preserved msgs   9"));
+    }
+
+    #[test]
+    fn provider_report_lists_current_and_available_profiles() {
+        let root = temp_dir();
+        fs::create_dir_all(root.join(".claw")).expect("claw dir");
+        fs::write(
+            root.join(".claw").join("settings.json"),
+            json!({
+              "providers": {
+                "default": "deepseek",
+                "profiles": {
+                  "deepseek": {
+                    "type": "openai-compat",
+                    "providerName": "DeepSeek",
+                    "apiKeyEnv": "DEEPSEEK_API_KEY",
+                    "baseUrl": "https://api.deepseek.com/v1",
+                    "defaultModel": "deepseek-chat"
+                  },
+                  "kimi": {
+                    "type": "openai-compat",
+                    "providerName": "Kimi",
+                    "apiKeyEnv": "MOONSHOT_API_KEY",
+                    "baseUrl": "https://api.moonshot.ai/v1",
+                    "defaultModel": "kimi-k2.5"
+                  }
+                }
+              }
+            })
+            .to_string(),
+        )
+        .expect("write settings");
+        let config = ConfigLoader::new(&root, root.join("missing-home"))
+            .load()
+            .expect("config should parse");
+
+        let report = format_provider_report(Some("kimi"), "kimi-k2.5", &config, 8, 3);
+        assert!(report.contains("Provider"));
+        assert!(report.contains("Current profile  kimi"));
+        assert!(report.contains("Active model     kimi-k2.5"));
+        assert!(report.contains("Default profile  deepseek"));
+        assert!(report.contains("deepseek"));
+        assert!(report.contains("DeepSeek"));
+        assert!(report.contains("Switch providers with /provider <profile>"));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn provider_switch_report_preserves_context_summary() {
+        let report = format_provider_switch_report(
+            Some("deepseek"),
+            "qwen",
+            "deepseek-chat",
+            "qwen-plus",
+            11,
+        );
+        assert!(report.contains("Provider updated"));
+        assert!(report.contains("Previous         deepseek"));
+        assert!(report.contains("Current          qwen"));
+        assert!(report.contains("Previous model   deepseek-chat"));
+        assert!(report.contains("Active model     qwen-plus"));
+        assert!(report.contains("Preserved msgs   11"));
     }
 
     #[test]
@@ -6474,6 +6682,12 @@ mod tests {
             SlashCommand::parse("/config env"),
             Some(SlashCommand::Config {
                 section: Some("env".to_string())
+            })
+        );
+        assert_eq!(
+            SlashCommand::parse("/provider qwen"),
+            Some(SlashCommand::Provider {
+                profile: Some("qwen".to_string())
             })
         );
         assert_eq!(SlashCommand::parse("/memory"), Some(SlashCommand::Memory));

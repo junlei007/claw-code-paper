@@ -160,11 +160,36 @@ survey_metadata
 - `.claw.json`
 - `.claw/settings.local.json`
 - `.claw/artifacts/`
+- `.claw/helpers/plotting.py`
+- `.claw/helpers/plotting.R`
 - `CLAW.md`
 
 如果你手动配置 provider，通常改的是仓库根目录下：
 
 - `.claw/settings.local.json`
+
+Survey research bootstrap 默认会带上这些 provider profile：
+
+- `deepseek`
+- `kimi`
+- `qwen`
+- `openai-compat`
+
+进入 REPL 后可以用：
+
+```text
+/provider kimi
+/model kimi-k2.5
+```
+
+或者：
+
+```text
+/provider qwen
+/model qwen-plus
+```
+
+生成 Python / R 图表脚本时，优先复用 `.claw/helpers/plotting.py` 和 `.claw/helpers/plotting.R`，这样中文/CJK 绘图配置可以保持一致。
 
 ---
 

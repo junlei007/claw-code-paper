@@ -104,6 +104,14 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         category: SlashCommandCategory::Core,
     },
     SlashCommandSpec {
+        name: "provider",
+        aliases: &[],
+        summary: "Show or switch the active provider profile",
+        argument_hint: Some("[profile]"),
+        resume_supported: false,
+        category: SlashCommandCategory::Core,
+    },
+    SlashCommandSpec {
         name: "permissions",
         aliases: &[],
         summary: "Show or switch the active permission mode",
@@ -336,6 +344,9 @@ pub enum SlashCommand {
     Model {
         model: Option<String>,
     },
+    Provider {
+        profile: Option<String>,
+    },
     Permissions {
         mode: Option<String>,
     },
@@ -418,6 +429,9 @@ impl SlashCommand {
             "debug-tool-call" => Self::DebugToolCall,
             "model" => Self::Model {
                 model: parts.next().map(ToOwned::to_owned),
+            },
+            "provider" => Self::Provider {
+                profile: parts.next().map(ToOwned::to_owned),
             },
             "permissions" => Self::Permissions {
                 mode: parts.next().map(ToOwned::to_owned),
@@ -1790,6 +1804,7 @@ pub fn handle_slash_command(
         | SlashCommand::Teleport { .. }
         | SlashCommand::DebugToolCall
         | SlashCommand::Model { .. }
+        | SlashCommand::Provider { .. }
         | SlashCommand::Permissions { .. }
         | SlashCommand::Clear { .. }
         | SlashCommand::Cost
@@ -2056,6 +2071,16 @@ mod tests {
             Some(SlashCommand::Model { model: None })
         );
         assert_eq!(
+            SlashCommand::parse("/provider kimi"),
+            Some(SlashCommand::Provider {
+                profile: Some("kimi".to_string()),
+            })
+        );
+        assert_eq!(
+            SlashCommand::parse("/provider"),
+            Some(SlashCommand::Provider { profile: None })
+        );
+        assert_eq!(
             SlashCommand::parse("/permissions read-only"),
             Some(SlashCommand::Permissions {
                 mode: Some("read-only".to_string()),
@@ -2156,6 +2181,7 @@ mod tests {
         assert!(help.contains("/teleport <symbol-or-path>"));
         assert!(help.contains("/debug-tool-call"));
         assert!(help.contains("/model [model]"));
+        assert!(help.contains("/provider [profile]"));
         assert!(help.contains("/permissions [read-only|workspace-write|danger-full-access]"));
         assert!(help.contains("/clear [--confirm]"));
         assert!(help.contains("/cost"));
@@ -2173,7 +2199,7 @@ mod tests {
         assert!(help.contains("aliases: /plugins, /marketplace"));
         assert!(help.contains("/agents"));
         assert!(help.contains("/skills"));
-        assert_eq!(slash_command_specs().len(), 28);
+        assert_eq!(slash_command_specs().len(), 29);
         assert_eq!(resume_supported_slash_commands().len(), 13);
     }
 
@@ -2258,6 +2284,9 @@ mod tests {
         );
         assert!(
             handle_slash_command("/model sonnet", &session, CompactionConfig::default()).is_none()
+        );
+        assert!(
+            handle_slash_command("/provider kimi", &session, CompactionConfig::default()).is_none()
         );
         assert!(handle_slash_command(
             "/permissions read-only",

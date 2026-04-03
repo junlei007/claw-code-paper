@@ -92,6 +92,16 @@ cd rust
 2. 再把稳定方法沉淀成 plugin
 3. 最后才讨论是否进入 bundled core
 
+### 7. provider 可切换，适合科研分析场景落地
+
+`claw init --research survey` 现在会直接脚手架：
+
+- DeepSeek / Kimi / Qwen / generic OpenAI-compatible provider profiles
+- `.claw/helpers/plotting.py`
+- `.claw/helpers/plotting.R`
+
+所以你可以在一个会话里用 `/provider <profile>` 和 `/model <name>` 切换后端，同时让 agent 生成的 Python / R 作图脚本复用统一的中文绘图 helper。
+
 ---
 
 ## 怎么快速使用
@@ -102,6 +112,22 @@ cd rust
 cd rust
 ~/.cargo/bin/cargo build -p claw-cli
 ./target/debug/claw init --research survey
+```
+
+初始化后的研究脚手架默认包含：
+
+- `.claw/settings.local.json`：DeepSeek / Kimi / Qwen / OpenAI-compatible provider profiles
+- `.claw/helpers/plotting.py`
+- `.claw/helpers/plotting.R`
+
+进入 REPL 后可以直接切换：
+
+```text
+/provider kimi
+/model kimi-k2.5
+
+/provider qwen
+/model qwen-plus
 ```
 
 然后按顺序使用：

@@ -469,6 +469,8 @@ fn render_research_section(config: &RuntimeConfig) -> String {
         lines.extend(prepend_bullets(vec![
             "Ask for or infer scale metadata carefully: item groups, reverse-coded items, response scales, and missing-value conventions.".to_string(),
             "Use Python-style tools for ingestion/cleaning/visualization and R-style tools for psychometrics/CFA when available.".to_string(),
+            "If the repo contains `.claw/helpers/plotting.py` or `.claw/helpers/plotting.R`, reuse those shared helpers instead of reimplementing font configuration in each generated script; if they are missing and you need to write new plotting scripts, create the helpers first and then call them.".to_string(),
+            "For Python figure scripts, load `.claw/helpers/plotting.py` and call `configure_cjk_plotting()` before importing seaborn themes or exporting charts; for R scripts, `source('.claw/helpers/plotting.R')` and call `configure_cjk_plotting()` before drawing ggplot/base graphics.".to_string(),
             "When generating plots with Chinese or other CJK labels, configure an explicit fallback font stack (for example: PingFang SC, Hiragino Sans GB, Microsoft YaHei, SimHei, Noto Sans CJK) and set matplotlib/seaborn minus-sign handling so exported figures do not show garbled text.".to_string(),
             "Report reliability metrics, validity pre-checks, model-fit indices, and any convergence or identification warnings explicitly.".to_string(),
             "Do not overstate findings: distinguish what the statistics show from what still needs domain interpretation.".to_string(),
@@ -816,6 +818,8 @@ mod tests {
         assert!(prompt.contains("# Research mode"));
         assert!(prompt.contains("Research profile: survey"));
         assert!(prompt.contains("Survey analysis operating rules"));
+        assert!(prompt.contains(".claw/helpers/plotting.py"));
+        assert!(prompt.contains("configure_cjk_plotting()"));
         assert!(prompt.contains("configure an explicit fallback font stack"));
         assert!(prompt.contains("Artifacts directory: .claw/artifacts"));
 

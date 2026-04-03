@@ -154,11 +154,10 @@ survey_metadata -> survey_score -> survey_psychometrics -> survey_report
 
 ---
 
-## 6. 示例配置：使用 DeepSeek / OpenAI-compatible 后端
+## 6. 示例配置：使用 DeepSeek / Kimi / Qwen / OpenAI-compatible 后端
 
 ```json
 {
-  "model": "deepseek-chat",
   "providers": {
     "default": "deepseek",
     "profiles": {
@@ -167,7 +166,32 @@ survey_metadata -> survey_score -> survey_psychometrics -> survey_report
         "providerName": "DeepSeek",
         "apiKeyEnv": "DEEPSEEK_API_KEY",
         "baseUrl": "https://api.deepseek.com/v1",
+        "baseUrlEnv": "DEEPSEEK_BASE_URL",
         "defaultModel": "deepseek-chat"
+      },
+      "kimi": {
+        "type": "openai-compat",
+        "providerName": "Kimi",
+        "apiKeyEnv": "MOONSHOT_API_KEY",
+        "baseUrl": "https://api.moonshot.ai/v1",
+        "baseUrlEnv": "MOONSHOT_BASE_URL",
+        "defaultModel": "kimi-k2.5"
+      },
+      "qwen": {
+        "type": "openai-compat",
+        "providerName": "Qwen",
+        "apiKeyEnv": "DASHSCOPE_API_KEY",
+        "baseUrl": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+        "baseUrlEnv": "DASHSCOPE_BASE_URL",
+        "defaultModel": "qwen-plus"
+      },
+      "openai-compat": {
+        "type": "openai-compat",
+        "providerName": "OpenAI Compatible",
+        "apiKeyEnv": "OPENAI_API_KEY",
+        "baseUrl": "https://api.openai.com/v1",
+        "baseUrlEnv": "OPENAI_BASE_URL",
+        "defaultModel": "gpt-4o-mini"
       }
     }
   },
@@ -185,6 +209,23 @@ survey_metadata -> survey_score -> survey_psychometrics -> survey_report
 ```
 
 这说明该研究插件并**不绑定 Claude 单一模型**，而是尽量通过 provider profile 保持模型后端可替换。
+
+如果你已经进入 REPL，可以直接：
+
+```text
+/provider kimi
+/model kimi-k2.5
+
+/provider qwen
+/model qwen-plus
+```
+
+另外，survey research bootstrap 现在会生成：
+
+- `.claw/helpers/plotting.py`
+- `.claw/helpers/plotting.R`
+
+建议所有 agent 生成的 Python / R 作图脚本都先调用这些 helper，再画中文/CJK 图表。
 
 ---
 

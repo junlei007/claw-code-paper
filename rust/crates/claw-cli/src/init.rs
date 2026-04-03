@@ -14,6 +14,82 @@ const GITIGNORE_ENTRIES: [&str; 3] = [
     ".claw/sessions/",
     ".claw/artifacts/",
 ];
+const SURVEY_PLOTTING_PY_HELPER: &str = r#"#!/usr/bin/env python3
+"""Shared plotting helpers for survey analysis scripts."""
+
+from __future__ import annotations
+
+from collections.abc import Iterable
+
+CJK_FONT_CANDIDATES = [
+    "PingFang SC",
+    "Hiragino Sans GB",
+    "Microsoft YaHei",
+    "SimHei",
+    "Noto Sans CJK SC",
+    "Noto Sans CJK TC",
+    "Noto Sans CJK JP",
+    "Arial Unicode MS",
+    "WenQuanYi Zen Hei",
+]
+
+
+def configure_cjk_plotting(extra_fonts: Iterable[str] | None = None) -> list[str]:
+    """Apply a consistent matplotlib/seaborn-safe CJK font stack."""
+
+    import matplotlib.pyplot as plt
+
+    fonts: list[str] = []
+    if extra_fonts is not None:
+        fonts.extend([font for font in extra_fonts if font])
+    for font in CJK_FONT_CANDIDATES:
+        if font not in fonts:
+            fonts.append(font)
+
+    plt.rcParams["font.family"] = "sans-serif"
+    plt.rcParams["font.sans-serif"] = fonts
+    plt.rcParams["axes.unicode_minus"] = False
+    return fonts
+
+
+def apply_seaborn_theme(style: str = "whitegrid") -> None:
+    """Set seaborn's theme if seaborn is installed."""
+
+    configure_cjk_plotting()
+    try:
+        import seaborn as sns
+    except ImportError:
+        return
+    sns.set_theme(style=style)
+"#;
+const SURVEY_PLOTTING_R_HELPER: &str = r#"choose_cjk_family <- function(family = NULL) {
+  if (!is.null(family) && nzchar(family)) {
+    return(family)
+  }
+
+  sysname <- tryCatch(Sys.info()[["sysname"]], error = function(...) "")
+  if (.Platform$OS.type == "windows") {
+    return("Microsoft YaHei")
+  }
+  if (identical(sysname, "Darwin")) {
+    return("PingFang SC")
+  }
+  "Noto Sans CJK SC"
+}
+
+configure_cjk_plotting <- function(family = NULL, base_size = 11) {
+  resolved_family <- choose_cjk_family(family)
+
+  if ("ggplot2" %in% loadedNamespaces() || requireNamespace("ggplot2", quietly = TRUE)) {
+    ggplot2::theme_set(
+      ggplot2::theme_minimal(base_family = resolved_family, base_size = base_size)
+    )
+  }
+
+  graphics::par(family = resolved_family)
+  invisible(list(family = resolved_family))
+}
+"#;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum InitResearchProfile {
@@ -144,6 +220,26 @@ pub(crate) fn initialize_repo(
             name: "artifacts/",
             status: ensure_dir(&artifact_dir)?,
         });
+
+        let helper_dir = claw_dir.join("helpers");
+        artifacts.push(InitArtifact {
+            name: "helpers/",
+            status: ensure_dir(&helper_dir)?,
+        });
+        artifacts.push(InitArtifact {
+            name: "plotting.py",
+            status: write_file_if_missing(
+                &helper_dir.join("plotting.py"),
+                SURVEY_PLOTTING_PY_HELPER,
+            )?,
+        });
+        artifacts.push(InitArtifact {
+            name: "plotting.R",
+            status: write_file_if_missing(
+                &helper_dir.join("plotting.R"),
+                SURVEY_PLOTTING_R_HELPER,
+            )?,
+        });
     }
 
     let claw_md = cwd.join("CLAW.md");
@@ -216,13 +312,39 @@ fn survey_settings_local_json() -> String {
     concat!(
         "{\n",
         "  \"providers\": {\n",
-        "    \"default\": \"survey-openai-compat\",\n",
+        "    \"default\": \"deepseek\",\n",
         "    \"profiles\": {\n",
-        "      \"survey-openai-compat\": {\n",
+        "      \"deepseek\": {\n",
+        "        \"type\": \"openai-compat\",\n",
+        "        \"providerName\": \"DeepSeek\",\n",
+        "        \"apiKeyEnv\": \"DEEPSEEK_API_KEY\",\n",
+        "        \"baseUrl\": \"https://api.deepseek.com/v1\",\n",
+        "        \"baseUrlEnv\": \"DEEPSEEK_BASE_URL\",\n",
+        "        \"defaultModel\": \"deepseek-chat\"\n",
+        "      },\n",
+        "      \"kimi\": {\n",
+        "        \"type\": \"openai-compat\",\n",
+        "        \"providerName\": \"Kimi\",\n",
+        "        \"apiKeyEnv\": \"MOONSHOT_API_KEY\",\n",
+        "        \"baseUrl\": \"https://api.moonshot.ai/v1\",\n",
+        "        \"baseUrlEnv\": \"MOONSHOT_BASE_URL\",\n",
+        "        \"defaultModel\": \"kimi-k2.5\"\n",
+        "      },\n",
+        "      \"qwen\": {\n",
+        "        \"type\": \"openai-compat\",\n",
+        "        \"providerName\": \"Qwen\",\n",
+        "        \"apiKeyEnv\": \"DASHSCOPE_API_KEY\",\n",
+        "        \"baseUrl\": \"https://dashscope.aliyuncs.com/compatible-mode/v1\",\n",
+        "        \"baseUrlEnv\": \"DASHSCOPE_BASE_URL\",\n",
+        "        \"defaultModel\": \"qwen-plus\"\n",
+        "      },\n",
+        "      \"openai-compat\": {\n",
         "        \"type\": \"openai-compat\",\n",
         "        \"providerName\": \"OpenAI Compatible\",\n",
         "        \"apiKeyEnv\": \"OPENAI_API_KEY\",\n",
-        "        \"baseUrl\": \"https://api.openai.com/v1\"\n",
+        "        \"baseUrl\": \"https://api.openai.com/v1\",\n",
+        "        \"baseUrlEnv\": \"OPENAI_BASE_URL\",\n",
+        "        \"defaultModel\": \"gpt-4o-mini\"\n",
         "      }\n",
         "    }\n",
         "  },\n",
@@ -431,7 +553,9 @@ fn research_workflow_lines(options: &InitOptions) -> Vec<String> {
 
     vec![
         "- Survey profile is enabled; keep provider credentials and local research settings in `.claw/settings.local.json`.".to_string(),
+        "- Built-in provider profiles are scaffolded for DeepSeek, Kimi, Qwen, and a generic OpenAI-compatible backend; switch them with `--provider <profile>` or `/provider <profile>`.".to_string(),
         "- Default artifact path: `.claw/artifacts/`. Write scored datasets, psychometric outputs, and draft reports there.".to_string(),
+        "- Shared plotting helpers live in `.claw/helpers/plotting.py` and `.claw/helpers/plotting.R`; reuse them in generated scripts before drawing Chinese/CJK figures.".to_string(),
         "- Recommended tool order: `survey_metadata` → `survey_score` → `survey_psychometrics` → `survey_report`.".to_string(),
         "- Supported ingestion formats currently prioritize CSV, XLSX, SPSS `.sav`, and `.dat` survey exports.".to_string(),
         "- Prefer Python-backed tools for ingestion/scoring/report drafting and the R-backed tool for reliability, validity checks, and CFA.".to_string(),
@@ -541,20 +665,43 @@ mod tests {
         let rendered = report.render();
         assert!(rendered.contains("settings.local   created"));
         assert!(rendered.contains("artifacts/       created"));
+        assert!(rendered.contains("helpers/         created"));
+        assert!(rendered.contains("plotting.py      created"));
+        assert!(rendered.contains("plotting.R       created"));
         assert!(rendered.contains("Set your provider/API key in `.claw/settings.local.json`"));
 
         let settings = fs::read_to_string(root.join(".claw").join("settings.local.json"))
             .expect("read survey settings");
         assert!(settings.contains("\"profile\": \"survey\""));
         assert!(settings.contains("\"research-survey@bundled\": true"));
-        assert!(settings.contains("\"default\": \"survey-openai-compat\""));
+        assert!(settings.contains("\"default\": \"deepseek\""));
+        assert!(settings.contains("\"kimi\""));
+        assert!(settings.contains("\"qwen\""));
         assert!(root.join(".claw").join("artifacts").is_dir());
+        assert!(root
+            .join(".claw")
+            .join("helpers")
+            .join("plotting.py")
+            .is_file());
+        assert!(root
+            .join(".claw")
+            .join("helpers")
+            .join("plotting.R")
+            .is_file());
+        let plotting_py =
+            fs::read_to_string(root.join(".claw").join("helpers").join("plotting.py"))
+                .expect("read plotting.py");
+        assert!(plotting_py.contains("configure_cjk_plotting"));
+        let plotting_r = fs::read_to_string(root.join(".claw").join("helpers").join("plotting.R"))
+            .expect("read plotting.R");
+        assert!(plotting_r.contains("configure_cjk_plotting"));
         let claw_md = fs::read_to_string(root.join("CLAW.md")).expect("read survey CLAW.md");
         assert!(claw_md.contains("## Research workflow"));
         assert!(claw_md.contains(
             "survey_metadata` → `survey_score` → `survey_psychometrics` → `survey_report"
         ));
         assert!(claw_md.contains("`.claw/artifacts/`"));
+        assert!(claw_md.contains("`.claw/helpers/plotting.py`"));
         assert!(claw_md.contains("SPSS `.sav`, and `.dat` survey exports"));
 
         fs::remove_dir_all(root).expect("cleanup temp dir");
@@ -595,6 +742,8 @@ mod tests {
         );
         assert!(rendered.contains("## Research workflow"));
         assert!(rendered.contains(".claw/settings.local.json"));
+        assert!(rendered.contains("--provider <profile>` or `/provider <profile>`"));
+        assert!(rendered.contains(".claw/helpers/plotting.py"));
         assert!(rendered.contains(
             "survey_metadata` → `survey_score` → `survey_psychometrics` → `survey_report"
         ));
