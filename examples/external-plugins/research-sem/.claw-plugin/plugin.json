@@ -1,0 +1,37 @@
+{
+  "name": "research-sem",
+  "version": "0.1.0",
+  "description": "Prototype external plugin for questionnaire CFA/SEM workflows using an R/lavaan execution lane.",
+  "tools": [
+    {
+      "name": "sem_lavaan",
+      "description": "Run a lightweight CFA/SEM model on a CSV dataset via R/lavaan and return structured fit diagnostics plus standardized estimates.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "datasetPath": { "type": "string" },
+          "modelSpec": { "type": "string" },
+          "analysisType": { "type": "string", "enum": ["cfa", "sem"] },
+          "delimiter": { "type": "string" },
+          "encoding": { "type": "string" },
+          "naValues": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "estimator": { "type": "string" },
+          "missingHandling": { "type": "string" },
+          "groupColumn": { "type": "string" },
+          "bootstrap": { "type": "integer", "minimum": 0 },
+          "outputPath": { "type": "string" }
+        },
+        "required": ["datasetPath", "modelSpec"],
+        "additionalProperties": true
+      },
+      "command": "Rscript",
+      "args": [
+        "./tools/sem_tools.R"
+      ],
+      "requiredPermission": "workspace-write"
+    }
+  ]
+}

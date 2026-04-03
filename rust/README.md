@@ -94,6 +94,7 @@ survey_metadata
 
 示例插件：
 
+- [`../examples/external-plugins/research-sem/README.md`](../examples/external-plugins/research-sem/README.md)
 - [`../examples/external-plugins/research-regression/README.md`](../examples/external-plugins/research-regression/README.md)
 - [`../docs/research-extension-demo.md`](../docs/research-extension-demo.md)
 

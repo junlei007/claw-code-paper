@@ -124,6 +124,11 @@ cd rust
 - 统计计算也不一定先做 bundled plugin
 - 可以先在 external plugin 里把契约和边界打磨清楚
 
+如果你要走 **R/lavaan 的 CFA / SEM** 路线，也可以参考：
+
+- [`../examples/external-plugins/research-sem/README.md`](../examples/external-plugins/research-sem/README.md)
+- [`./questionnaire-sem-rehearsal.md`](./questionnaire-sem-rehearsal.md)
+
 ---
 
 ## Step 4：直接调用 regression 原型工具
@@ -211,4 +216,6 @@ env CLAW_TOOL_NAME=regression_ols \
 - [`./project-skill-synthesis.md`](./project-skill-synthesis.md)
 - [`./research-method-standards.md`](./research-method-standards.md)
 - [`./research-method-registry.md`](./research-method-registry.md)
+- [`./questionnaire-sem-rehearsal.md`](./questionnaire-sem-rehearsal.md)
+- [`../examples/external-plugins/research-sem/README.md`](../examples/external-plugins/research-sem/README.md)
 - [`../examples/external-plugins/research-regression/README.md`](../examples/external-plugins/research-regression/README.md)

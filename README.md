@@ -352,6 +352,7 @@ cd rust
 - [`docs/questionnaire-mediation-moderation-rehearsal.md`](docs/questionnaire-mediation-moderation-rehearsal.md)
 - [`docs/self-extension-evaluation-checklist.md`](docs/self-extension-evaluation-checklist.md)
 - [`docs/research-extension-demo.md`](docs/research-extension-demo.md)
+- [`examples/external-plugins/research-sem/README.md`](examples/external-plugins/research-sem/README.md)
 - [`examples/project-skills/questionnaire-sem-sop/README.md`](examples/project-skills/questionnaire-sem-sop/README.md)
 - [`examples/project-skills/questionnaire-mediation-moderation-sop/README.md`](examples/project-skills/questionnaire-mediation-moderation-sop/README.md)
 - [`examples/external-plugins/research-regression/README.md`](examples/external-plugins/research-regression/README.md)
