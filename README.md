@@ -1,6 +1,8 @@
 # claw-code-paper
 
-**一个面向科研数据分析的 agent 工作台：稳定内核、可切换模型、可治理的方法能力、可演进的 skill / plugin 体系。**
+> **A research agent platform for turning analysis workflows into durable capabilities.**
+
+一个面向科研数据分析的 agent 工作台：**稳定内核、可切换模型、可治理的方法能力、可演进的 skill / plugin 体系。**
 
 它不是把“大模型 + 一堆脚本”临时拼起来，而是想把科研分析里最难长期维护的几件事放进同一套系统：
 
@@ -9,6 +11,23 @@
 - 论文、SOP、codebook、经验笔记可以沉淀成 skill
 - 成熟方法可以升级成 external plugin / bundled plugin
 - 整个系统能逐步形成 **受控自进化**，而不是失控堆逻辑
+
+---
+
+## Highlights
+
+- **Research-first, not chat-first**
+  - 从一开始就围绕问卷、量表、统计分析、方法沉淀来设计，而不是事后给通用 agent 打补丁
+- **Stable Rust kernel**
+  - runtime、配置、插件、会话、指令边界放在稳定内核里，避免方法逻辑四处散落
+- **Python / R execution where it matters**
+  - 用最合适的计算层做清洗、计分、psychometrics、CFA、作图、报告输出
+- **Model-switchable by design**
+  - DeepSeek、Kimi、Qwen、OpenAI-compatible 都能接进同一工作流，而不是被单一 provider 绑死
+- **Skill / plugin growth loop**
+  - 材料先沉淀成 skill，成熟方法再升级成 plugin，最终形成可复用能力资产
+- **Built for Chinese research workflows**
+  - 已开始补中文/CJK 图表输出、研究文档沉淀、方法治理这些真实使用中的关键细节
 
 ---
 
@@ -35,6 +54,24 @@
 
 ---
 
+## The core idea
+
+这个项目最核心的判断其实很简单：
+
+- **研究知识** 不应该只留在 prompt 里
+- **分析方法** 不应该只活在零散脚本里
+- **用户材料** 不应该每次对话都重新解释一遍
+
+更好的方式是把它们逐步沉淀为：
+
+```text
+materials -> skill -> plugin -> bundled capability
+```
+
+一旦这条链跑通，agent 不再只是“临时帮你完成任务”，而是在帮你积累一套越来越稳定的研究能力系统。
+
+---
+
 ## What already works today
 
 项目不是停留在架构想法上，已经有一条能跑起来的 survey 主链路：
@@ -56,6 +93,22 @@ survey_metadata -> survey_score -> survey_psychometrics -> survey_report
 这意味着它已经具备一个很重要的特征：
 
 > **它不是“以后也许可以做科研分析”，而是“现在已经可以把一类科研分析链路跑通”。**
+
+---
+
+## A better mental model
+
+如果用一句更像产品介绍的话来描述它：
+
+> **Claw Code Paper = research agent runtime + method execution layer + capability growth system**
+
+其中：
+
+- **runtime** 负责稳
+- **execution layer** 负责把 Python / R 方法真正跑起来
+- **growth system** 负责把一次次研究经验变成可复用 skill / plugin
+
+这也是它和很多“会调工具的 agent”之间最大的差异。
 
 ---
 
