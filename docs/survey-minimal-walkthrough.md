@@ -185,8 +185,13 @@ env CLAW_TOOL_NAME=survey_report \
 成功后会生成：
 
 - `.claw/artifacts/mini_report.md`
+- `.claw/artifacts/mini_report.input.json`
+- `.claw/artifacts/mini_report.review.json`
 
-这一步的作用不是替代研究者写最终报告，而是把前面结构化结果快速串成一个 Markdown 草稿。
+这一步的作用不是替代研究者写最终报告，而是：
+
+- 先生成一个更接近 `Results` 结构的 Markdown 草稿
+- 再额外生成 review artifact，帮助你判断这个草稿是否还需要修
 
 ---
 
@@ -197,6 +202,8 @@ env CLAW_TOOL_NAME=survey_report \
 ```text
 .claw/artifacts/mini_scored.csv
 .claw/artifacts/mini_report.md
+.claw/artifacts/mini_report.input.json
+.claw/artifacts/mini_report.review.json
 ```
 
 如果这两步都能成功，基本说明：

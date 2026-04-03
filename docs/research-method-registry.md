@@ -135,8 +135,9 @@ If a method is not listed as `integrated`, users should follow the extension dec
   - report context values
 - **Typical outputs:**
   - Markdown report draft
+- **Recommended review artifact:** `report-review.json`
 - **Recommended artifact:** `report.md`
-- **Limits:** report output is a draft, not final publication-ready formatting
+- **Limits:** report output is a reviewed draft workflow target, not automatic final publication-ready formatting
 
 ---
 

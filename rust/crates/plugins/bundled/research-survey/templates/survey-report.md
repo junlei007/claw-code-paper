@@ -1,29 +1,27 @@
 # {{title}}
 
-## Dataset
-- Path: {{dataset_path}}
-- Format: {{format}}
-- Sample size: {{sample_size}}
+> Quality profile: `{{quality_profile}}`
 
-## Instrument structure
-- Scales: {{scale_count}}
-- Reverse-coded items: {{reverse_item_count}}
+## Objective
 
-## Reliability
-- Cronbach's alpha: {{alpha}}
-- McDonald's omega: {{omega}}
+{{objective}}
 
-## Validity pre-checks
-- KMO: {{kmo}}
-- Bartlett's test: {{bartlett}}
+## Sample and instrument overview
 
-## CFA
-- Model: {{model_spec}}
-- CFI: {{cfi}}
-- TLI: {{tli}}
-- RMSEA: {{rmsea}}
-- SRMR: {{srmr}}
+{{sample_summary}}
 
-## Notes
-- Distinguish statistical output from substantive interpretation.
-- Record missing-data handling and reverse-scoring decisions explicitly.
+## Measurement quality results
+
+{{measurement_results}}
+
+## Primary statistical results
+
+{{primary_results}}
+
+## Diagnostics and reporting limits
+
+{{diagnostics}}
+
+## Results takeaway
+
+{{takeaway}}

@@ -432,8 +432,13 @@ printf '%s' '{
 
 - 渲染后的 Markdown 文本
 - 可选 Markdown artifact
+- 可选 `report.input.json` / `report.review.json` 审查配套 artifact
 
-这个工具目前偏“草稿生成器”，重点是把前面步骤产出的结构化结果串起来，而不是替代研究者做最终学术写作。
+这个工具现在仍然是**报告草稿入口**，但已经开始输出配套的 review artifact，用于检查：
+
+- 结构是否接近 SSCI / Results 风格
+- 文字是否仍然带有 scaffold / tool-like 痕迹
+- 后续是否需要 targeted revision
 
 ---
 

@@ -11,6 +11,7 @@ Its purpose is to keep the system:
 Companion default presentation baseline:
 
 - [`./research-output-style-guide.md`](./research-output-style-guide.md)
+- [`./report-review-contract.md`](./report-review-contract.md)
 
 ---
 
@@ -160,6 +161,7 @@ Every integrated research method should follow these norms:
 6. **Default to publication-grade presentation discipline**
    - figures, tables, and user-facing narrative should follow the project default presentation guide unless the user supplies a more specific target style
    - raw machine dumps should stay in artifacts or debug surfaces, not the main user-facing presentation
+   - report delivery should prefer an explicit review artifact when the method includes a reporting stage
 
 ---
 

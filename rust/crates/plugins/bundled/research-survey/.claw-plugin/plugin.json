@@ -1,6 +1,6 @@
 {
   "name": "research-survey",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Bundled survey research plugin scaffold for questionnaire ingestion, psychometrics, CFA, and report workflows.",
   "defaultEnabled": false,
   "tools": [
@@ -256,7 +256,7 @@
     },
     {
       "name": "survey_report",
-      "description": "Render a markdown survey-analysis report artifact from structured results and the bundled template.",
+      "description": "Render a markdown survey-analysis report draft plus review artifacts from structured results and the bundled template.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -274,6 +274,9 @@
           },
           "results": {
             "type": "object"
+          },
+          "qualityProfile": {
+            "type": "string"
           },
           "notes": {
             "type": "array",

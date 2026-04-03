@@ -693,6 +693,258 @@ def workspace_relative_path(path: Path) -> str | None:
         return None
 
 
+def normalize_number(value: Any, digits: int = 3) -> str:
+    if value is None or value == "":
+        return "not reported"
+    try:
+        numeric = float(value)
+    except Exception:
+        return str(value)
+    return f"{numeric:.{digits}f}"
+
+
+def first_nonempty(*values: Any) -> Any:
+    for value in values:
+        if value is not None and value != "":
+            return value
+    return None
+
+
+def resolve_quality_profile(payload: dict[str, Any]) -> str:
+    profile = payload.get("qualityProfile")
+    if isinstance(profile, str) and profile.strip():
+        return profile.strip()
+    return "ssci-default"
+
+
+def build_report_input(
+    payload: dict[str, Any],
+    dataset: dict[str, Any],
+    questionnaire: dict[str, Any],
+    results: dict[str, Any],
+    notes: list[str],
+    quality_profile: str,
+) -> dict[str, Any]:
+    return {
+        "title": payload.get("title") or "Survey Analysis Report",
+        "qualityProfile": quality_profile,
+        "dataset": {
+            "path": payload.get("datasetPath") or dataset.get("path"),
+            "format": dataset.get("format"),
+            "sampleSize": first_nonempty(dataset.get("rows"), results.get("sampleSize")),
+        },
+        "instrument": {
+            "scaleCount": first_nonempty(questionnaire.get("scaleCount"), results.get("scaleCount")),
+            "reverseItemCount": first_nonempty(
+                questionnaire.get("reverseItemCount"), results.get("reverseItemCount")
+            ),
+        },
+        "results": {
+            "alpha": first_nonempty(results.get("alpha"), results.get("cronbachAlpha")),
+            "omega": first_nonempty(results.get("omega"), results.get("mcdonaldOmega")),
+            "kmo": results.get("kmo"),
+            "bartlett": results.get("bartlett"),
+            "modelSpec": first_nonempty(results.get("modelSpec"), results.get("cfaModel")),
+            "estimator": results.get("estimator"),
+            "missingHandling": results.get("missingHandling"),
+            "cfi": results.get("cfi"),
+            "tli": results.get("tli"),
+            "rmsea": results.get("rmsea"),
+            "srmr": results.get("srmr"),
+            "warnings": results.get("warnings") if isinstance(results.get("warnings"), list) else [],
+        },
+        "notes": notes,
+        "figures": payload.get("figures") if isinstance(payload.get("figures"), list) else [],
+        "tables": payload.get("tables") if isinstance(payload.get("tables"), list) else [],
+    }
+
+
+def build_report_sections(report_input: dict[str, Any]) -> dict[str, str]:
+    dataset = report_input.get("dataset", {})
+    instrument = report_input.get("instrument", {})
+    results = report_input.get("results", {})
+    notes = report_input.get("notes", [])
+
+    objective = (
+        "This report summarizes the questionnaire analysis workflow, with emphasis on measurement quality "
+        "and the primary statistical results needed for a draft Results section."
+    )
+    sample_summary = (
+        f"The analyzed dataset came from `{dataset.get('path') or 'the provided dataset'}` "
+        f"({dataset.get('format') or 'unknown format'}), with an effective sample size of "
+        f"{dataset.get('sampleSize') or 'not reported'}. "
+        f"The instrument description currently records {instrument.get('scaleCount') or 'an unknown number of'} scale(s) "
+        f"and {instrument.get('reverseItemCount') or 'an unknown number of'} reverse-coded item(s)."
+    )
+
+    measurement = (
+        "Measurement quality indicators were summarized before substantive interpretation. "
+        f"Cronbach's alpha was {normalize_number(results.get('alpha'))}, "
+        f"McDonald's omega was {normalize_number(results.get('omega'))}, "
+        f"KMO was {normalize_number(results.get('kmo'))}, and Bartlett's test was reported as {results.get('bartlett') or 'not reported'}."
+    )
+
+    model_sentence = (
+        f"The primary model specification was `{results.get('modelSpec') or 'not reported'}`. "
+        f"Estimator: {results.get('estimator') or 'not reported'}. "
+        f"Missing-data handling: {results.get('missingHandling') or 'not reported'}."
+    )
+    fit_sentence = (
+        f"Key fit indices were CFI = {normalize_number(results.get('cfi'))}, "
+        f"TLI = {normalize_number(results.get('tli'))}, "
+        f"RMSEA = {normalize_number(results.get('rmsea'))}, and "
+        f"SRMR = {normalize_number(results.get('srmr'))}."
+    )
+    primary_results = (
+        "The primary statistical results are reported below in a compact manuscript-oriented form. "
+        + model_sentence
+        + " "
+        + fit_sentence
+    )
+
+    warnings = results.get("warnings") if isinstance(results.get("warnings"), list) else []
+    diagnostics_bits = []
+    if warnings:
+        diagnostics_bits.append(
+            "Warnings that may affect interpretation were retained explicitly: "
+            + "; ".join(str(item) for item in warnings[:4])
+        )
+    if notes:
+        diagnostics_bits.append("Analyst notes: " + "; ".join(str(item) for item in notes[:4]))
+    if not diagnostics_bits:
+        diagnostics_bits.append(
+            "No additional diagnostics or analyst notes were supplied; publication-facing interpretation should still verify assumptions manually."
+        )
+    diagnostics = " ".join(diagnostics_bits)
+
+    takeaway = (
+        "Overall, this draft should be treated as a structured Results-section starting point rather than a final manuscript product. "
+        "All substantive claims should remain tied to the reported statistics and any unresolved warnings above."
+    )
+
+    return {
+        "objective": objective,
+        "sample_summary": sample_summary,
+        "measurement_results": measurement,
+        "primary_results": primary_results,
+        "diagnostics": diagnostics,
+        "takeaway": takeaway,
+    }
+
+
+def structure_review(report_input: dict[str, Any], markdown: str) -> dict[str, Any]:
+    required_headings = [
+        "## Objective",
+        "## Sample and instrument overview",
+        "## Measurement quality results",
+        "## Primary statistical results",
+        "## Diagnostics and reporting limits",
+        "## Results takeaway",
+    ]
+    issues: list[str] = []
+    passed_checks = 0
+
+    for heading in required_headings:
+        if heading in markdown:
+            passed_checks += 1
+        else:
+            issues.append(f"Missing required section heading: {heading}")
+
+    results = report_input.get("results", {})
+    if results.get("modelSpec") and "CFI =" not in markdown:
+        issues.append("Model results were provided but compact fit reporting is missing.")
+    else:
+        passed_checks += 1
+    if results.get("warnings") and "Warnings" not in markdown and "warning" not in markdown.lower():
+        issues.append("Warnings are present in structured input but not surfaced in diagnostics.")
+    else:
+        passed_checks += 1
+
+    total_checks = len(required_headings) + 2
+    score = round((passed_checks / total_checks) * 100)
+    verdict = "pass" if score >= 85 and not issues else "revise"
+    return {
+        "score": score,
+        "verdict": verdict,
+        "issues": issues,
+        "checksRun": total_checks,
+    }
+
+
+def narrative_review(markdown: str) -> dict[str, Any]:
+    issues: list[str] = []
+    discouraged_patterns = {
+        "tool returned": "Tool-log wording should not appear in the final narrative.",
+        "payload": "Machine-oriented payload wording should not appear in the final narrative.",
+        "json": "Raw JSON-oriented wording should stay out of user-facing report prose.",
+        "obviously": "Overconfident language should be avoided in SSCI-style results writing.",
+    }
+    for pattern, issue in discouraged_patterns.items():
+        if pattern in markdown.lower():
+            issues.append(issue)
+
+    if markdown.count("not reported") >= 5:
+        issues.append("Too many 'not reported' placeholders remain; the draft still feels scaffold-level.")
+    if "## Notes" in markdown:
+        issues.append("A generic Notes section suggests scaffold-level reporting rather than Results-grade structure.")
+
+    score = max(0, 100 - len(issues) * 18)
+    verdict = "pass" if score >= 82 and not issues else "revise"
+    return {
+        "score": score,
+        "verdict": verdict,
+        "issues": issues,
+        "checksRun": len(discouraged_patterns) + 2,
+    }
+
+
+def figure_accuracy_review(report_input: dict[str, Any]) -> dict[str, Any]:
+    figures = report_input.get("figures", [])
+    tables = report_input.get("tables", [])
+    if not figures and not tables:
+        return {
+            "score": None,
+            "verdict": "not_applicable",
+            "issues": [],
+            "checksRun": 0,
+        }
+    return {
+        "score": 50,
+        "verdict": "revise",
+        "issues": [
+            "Figure/table consistency review is declared in the contract but not yet fully implemented for this method."
+        ],
+        "checksRun": 1,
+    }
+
+
+def build_review_result(report_input: dict[str, Any], markdown: str) -> dict[str, Any]:
+    figure_review = figure_accuracy_review(report_input)
+    structure = structure_review(report_input, markdown)
+    narrative = narrative_review(markdown)
+
+    required_fixes = [*structure["issues"], *narrative["issues"], *figure_review["issues"]]
+    hard_fail = any(
+        verdict == "revise"
+        for verdict in (structure["verdict"], narrative["verdict"])
+    )
+    overall_verdict = "revise" if hard_fail else "pass"
+    scored = [item for item in (structure["score"], narrative["score"]) if isinstance(item, int)]
+    overall_score = round(sum(scored) / len(scored)) if scored else None
+
+    return {
+        "qualityProfile": report_input.get("qualityProfile") or "ssci-default",
+        "dimensions": {
+            "figureAccuracy": figure_review,
+            "structureQuality": structure,
+            "narrativeQuality": narrative,
+        },
+        "overallVerdict": overall_verdict,
+        "overallScore": overall_score,
+        "requiredFixes": required_fixes,
+    }
+
+
 def render_report(
     payload: dict[str, Any],
     plugin_root: Path,
@@ -718,39 +970,36 @@ def render_report(
         else {}
     )
     results = payload.get("results") if isinstance(payload.get("results"), dict) else {}
+    notes = payload.get("notes") if isinstance(payload.get("notes"), list) else []
+    quality_profile = resolve_quality_profile(payload)
+    report_input = build_report_input(
+        payload=payload,
+        dataset=dataset,
+        questionnaire=questionnaire,
+        results=results,
+        notes=notes,
+        quality_profile=quality_profile,
+    )
+    sections = build_report_sections(report_input)
     replacements = {
-        "title": payload.get("title") or "Survey Analysis Report",
-        "dataset_path": payload.get("datasetPath") or dataset.get("path") or "TBD",
-        "format": dataset.get("format") or "unknown",
-        "sample_size": dataset.get("rows") or results.get("sampleSize") or "TBD",
-        "scale_count": coalesce(questionnaire.get("scaleCount"), results.get("scaleCount"), "TBD"),
-        "reverse_item_count": coalesce(
-            questionnaire.get("reverseItemCount"),
-            results.get("reverseItemCount"),
-            "TBD",
-        ),
-        "alpha": coalesce(results.get("alpha"), results.get("cronbachAlpha"), "not-run"),
-        "omega": coalesce(results.get("omega"), results.get("mcdonaldOmega"), "not-run"),
-        "kmo": coalesce(results.get("kmo"), "not-run"),
-        "bartlett": coalesce(results.get("bartlett"), "not-run"),
-        "model_spec": coalesce(
-            results.get("modelSpec"), results.get("cfaModel"), "not-run"
-        ),
-        "cfi": coalesce(results.get("cfi"), "not-run"),
-        "tli": coalesce(results.get("tli"), "not-run"),
-        "rmsea": coalesce(results.get("rmsea"), "not-run"),
-        "srmr": coalesce(results.get("srmr"), "not-run"),
+        "title": report_input["title"],
+        "quality_profile": quality_profile,
+        "objective": sections["objective"],
+        "sample_summary": sections["sample_summary"],
+        "measurement_results": sections["measurement_results"],
+        "primary_results": sections["primary_results"],
+        "diagnostics": sections["diagnostics"],
+        "takeaway": sections["takeaway"],
     }
     rendered = template
     for key, value in replacements.items():
         rendered = rendered.replace(f"{{{{{key}}}}}", str(value))
-
-    notes = payload.get("notes") if isinstance(payload.get("notes"), list) else []
-    if notes:
-        rendered += "\n" + "\n".join(f"- {note}" for note in notes)
+    review = build_review_result(report_input, rendered)
 
     output_path_raw = payload.get("outputPath")
     artifact = None
+    review_artifact = None
+    input_artifact = None
     if isinstance(output_path_raw, str) and output_path_raw.strip():
         output_path = resolve_output_path(output_path_raw, workspace_root)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -760,21 +1009,50 @@ def render_report(
             "workspaceRelativePath": workspace_relative_path(output_path),
             "kind": "markdown",
         }
+        review_output = output_path.with_suffix(".review.json")
+        review_output.write_text(
+            json.dumps(review, ensure_ascii=False, indent=2, default=json_default),
+            encoding="utf-8",
+        )
+        review_artifact = {
+            "path": str(review_output),
+            "workspaceRelativePath": workspace_relative_path(review_output),
+            "kind": "json",
+        }
+        input_output = output_path.with_suffix(".input.json")
+        input_output.write_text(
+            json.dumps(report_input, ensure_ascii=False, indent=2, default=json_default),
+            encoding="utf-8",
+        )
+        input_artifact = {
+            "path": str(input_output),
+            "workspaceRelativePath": workspace_relative_path(input_output),
+            "kind": "json",
+        }
 
     return {
         "status": "ok",
         "report": {
-            "title": replacements["title"],
+            "title": report_input["title"],
             "template": str(template_path),
             "artifact": artifact,
             "markdown": rendered,
         },
+        "reportInput": {
+            "qualityProfile": quality_profile,
+            "artifact": input_artifact,
+            "data": report_input,
+        },
+        "review": {
+            **review,
+            "artifact": review_artifact,
+        },
         "backendHints": {
             "primary": "markdown",
             "next": [
-                "review narrative claims against statistical output",
-                "add reliability/validity/CFA results from the R backend contract",
-                "promote markdown to Quarto/PDF if needed",
+                "treat markdown as a reviewed draft, not a final manuscript artifact",
+                "fix all requiredFixes in the review payload before delivery",
+                "promote the reviewed markdown to Quarto/PDF only after quality gates pass",
             ],
         },
     }
