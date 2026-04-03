@@ -25,7 +25,8 @@ The intended default execution backend is:
   "estimator": "ML",
   "missingHandling": "fiml",
   "bootstrap": 200,
-  "outputPath": ".claw/artifacts/sem-summary.json"
+  "outputPath": ".claw/artifacts/sem-summary.json",
+  "diagramPath": ".claw/artifacts/sem-path.png"
 }
 ```
 
@@ -35,6 +36,8 @@ Optional fields:
 - `measurementInvariance: true` to request a configural -> metric -> scalar invariance sequence for `analysisType = "cfa"`
 - `invarianceLevels` to restrict the sequence (for example `["configural", "metric"]`)
 - `delimiter` / `encoding` / `naValues` for CSV parsing overrides
+- `diagramPath` to request a static path diagram artifact
+- `diagramFormat` when `diagramPath` omits the extension (supported: `png`, `pdf`)
 
 ## Output shape
 
@@ -47,9 +50,11 @@ The tool returns:
 - standardized loadings
 - standardized structural paths
 - defined parameters (e.g. indirect effects)
+- optional static diagram metadata
 - warnings
 
 If `outputPath` is provided, it also writes the same structured payload to disk.
+If `diagramPath` is provided, it attempts to write a static SEM path diagram and reports whether it was generated successfully.
 
 ## Interpretation boundary
 
@@ -71,5 +76,6 @@ This prototype is intentionally narrow:
 - one generic `lavaan` execution surface
 - CFA / SEM fit summaries
 - measurement invariance is limited to a simple configural / metric / scalar CFA sequence
+- path diagrams are static-only (`png` / `pdf`) and meant for quick inspection, not publication-ready figure layout
 - no automatic modification-index driven model revision
 - no publication-grade table formatter yet

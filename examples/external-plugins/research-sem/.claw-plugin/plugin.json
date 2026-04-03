@@ -1,6 +1,6 @@
 {
   "name": "research-sem",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Prototype external plugin for questionnaire CFA/SEM workflows using an R/lavaan execution lane.",
   "tools": [
     {
@@ -27,7 +27,9 @@
             "items": { "type": "string", "enum": ["configural", "metric", "scalar"] }
           },
           "bootstrap": { "type": "integer", "minimum": 0 },
-          "outputPath": { "type": "string" }
+          "outputPath": { "type": "string" },
+          "diagramPath": { "type": "string" },
+          "diagramFormat": { "type": "string", "enum": ["png", "pdf"] }
         },
         "required": ["datasetPath", "modelSpec"],
         "additionalProperties": true

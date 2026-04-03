@@ -34,7 +34,7 @@ So this prototype is intentionally thin: one manifest, one tool, one fixture dat
 
 | Tool | Purpose |
 | --- | --- |
-| `sem_lavaan` | Run a lightweight CFA/SEM model on a CSV dataset and return structured fit diagnostics plus standardized estimates |
+| `sem_lavaan` | Run a lightweight CFA/SEM model on a CSV dataset and return structured fit diagnostics, standardized estimates, and an optional static path diagram |
 
 ---
 
@@ -81,12 +81,30 @@ Optional artifact write:
 }
 ```
 
+Optional static diagram export:
+
+```json
+{
+  "diagramPath": ".claw/artifacts/sem-path.png"
+}
+```
+
+If you prefer a path without an extension, provide `diagramFormat` explicitly:
+
+```json
+{
+  "diagramPath": ".claw/artifacts/sem-path",
+  "diagramFormat": "pdf"
+}
+```
+
 ---
 
 ## Current limitations
 
 - CSV only
 - measurement invariance currently only covers a simple configural / metric / scalar CFA sequence
+- diagram export is intentionally static-only (`png` / `pdf`) and optimized for quick inspection rather than publication layout
 - no modification-index recommendation layer yet
 - no latent interaction / mixture / multilevel SEM support yet
 - no publication-grade table / figure formatter yet

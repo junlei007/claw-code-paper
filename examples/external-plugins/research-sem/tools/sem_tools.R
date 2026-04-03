@@ -116,6 +116,50 @@ resolve_output_path <- function(raw_path) {
   normalizePath(file.path(workspace_root, candidate), winslash = "/", mustWork = FALSE)
 }
 
+infer_extension <- function(raw_path) {
+  ext <- tools::file_ext(raw_path)
+  if (!nzchar(ext)) {
+    return(NULL)
+  }
+  tolower(ext)
+}
+
+build_diagram_request <- function(path_input, format_input) {
+  if (is.null(path_input) || !nzchar(trimws(path_input))) {
+    return(NULL)
+  }
+
+  requested_format <- normalize_scalar(format_input)
+  if (!is.null(requested_format) && nzchar(trimws(requested_format))) {
+    requested_format <- tolower(trimws(requested_format))
+  } else {
+    requested_format <- NULL
+  }
+
+  path_extension <- infer_extension(path_input)
+  if (is.null(requested_format) && is.null(path_extension)) {
+    return(list(error = "diagramPath must include a .png or .pdf extension, or diagramFormat must be provided"))
+  }
+  if (!is.null(requested_format) && !requested_format %in% c("png", "pdf")) {
+    return(list(error = "diagramFormat must be png or pdf"))
+  }
+  if (!is.null(path_extension) && !path_extension %in% c("png", "pdf")) {
+    return(list(error = "diagramPath must end in .png or .pdf"))
+  }
+  if (!is.null(requested_format) && !is.null(path_extension) && requested_format != path_extension) {
+    return(list(error = "diagramPath extension must match diagramFormat when both are provided"))
+  }
+
+  resolved_format <- if (!is.null(requested_format)) requested_format else path_extension
+  raw_output_path <- if (!is.null(path_extension)) path_input else sprintf("%s.%s", path_input, resolved_format)
+  output_path <- resolve_output_path(raw_output_path)
+
+  list(
+    format = resolved_format,
+    path = output_path
+  )
+}
+
 read_dataset <- function(dataset_path, delimiter, encoding, na_values) {
   utils::read.table(
     dataset_path,
@@ -298,6 +342,112 @@ run_invariance_sequence <- function(model_spec, fit_df, estimator, missing_handl
   list(levels = fits, warnings = clean_messages(warnings))
 }
 
+render_path_diagram <- function(fit, output_path, format, workspace_root) {
+  warnings <- character()
+  messages <- character()
+
+  if (!requireNamespace("semPlot", quietly = TRUE)) {
+    return(list(
+      result = list(
+        path = output_path,
+        workspaceRelativePath = if (startsWith(output_path, paste0(workspace_root, "/"))) sub(paste0("^", workspace_root, "/"), "", output_path) else NULL,
+        format = format,
+        generated = FALSE,
+        error = "Package 'semPlot' is required for diagram export"
+      ),
+      warnings = warnings
+    ))
+  }
+
+  dir.create(dirname(output_path), recursive = TRUE, showWarnings = FALSE)
+  if (file.exists(output_path)) {
+    unlink(output_path, force = TRUE)
+  }
+
+  device_open <- FALSE
+  draw_result <- withCallingHandlers(
+    tryCatch({
+      if (format == "png") {
+        grDevices::png(filename = output_path, width = 1800, height = 1400, res = 180)
+      } else {
+        grDevices::pdf(file = output_path, width = 12, height = 9)
+      }
+      device_open <- TRUE
+
+      semPlot::semPaths(
+        object = fit,
+        what = "std",
+        whatLabels = "std",
+        style = "ram",
+        layout = "tree",
+        intercepts = FALSE,
+        residuals = FALSE,
+        thresholds = FALSE,
+        nCharNodes = 0,
+        edge.label.cex = 0.7,
+        sizeMan = 7,
+        sizeLat = 9,
+        mar = c(6, 6, 6, 6),
+        title = FALSE
+      )
+
+      TRUE
+    }, error = function(err) err),
+    warning = function(wrn) {
+      warnings <<- c(warnings, conditionMessage(wrn))
+      invokeRestart("muffleWarning")
+    },
+    message = function(msg) {
+      messages <<- c(messages, conditionMessage(msg))
+      invokeRestart("muffleMessage")
+    }
+  )
+
+  if (device_open) {
+    try(grDevices::dev.off(), silent = TRUE)
+  }
+
+  warnings <- c(warnings, messages)
+  warnings <- prefix_messages("semPlot", warnings)
+  if (inherits(draw_result, "error")) {
+    return(list(
+      result = list(
+        path = output_path,
+        workspaceRelativePath = if (startsWith(output_path, paste0(workspace_root, "/"))) sub(paste0("^", workspace_root, "/"), "", output_path) else NULL,
+        format = format,
+        generated = FALSE,
+        error = draw_result$message
+      ),
+      warnings = warnings
+    ))
+  }
+
+  if (!file.exists(output_path)) {
+    warnings <- c(warnings, sprintf("semPlot completed without creating the requested diagram file: %s", output_path))
+    return(list(
+      result = list(
+        path = output_path,
+        workspaceRelativePath = if (startsWith(output_path, paste0(workspace_root, "/"))) sub(paste0("^", workspace_root, "/"), "", output_path) else NULL,
+        format = format,
+        generated = FALSE,
+        error = "diagram file was not created"
+      ),
+      warnings = warnings
+    ))
+  }
+
+  list(
+    result = list(
+      path = output_path,
+      workspaceRelativePath = if (startsWith(output_path, paste0(workspace_root, "/"))) sub(paste0("^", workspace_root, "/"), "", output_path) else NULL,
+      format = format,
+      generated = TRUE,
+      error = NULL
+    ),
+    warnings = clean_messages(warnings)
+  )
+}
+
 dataset_path_input <- normalize_scalar(payload$datasetPath)
 if (is.null(dataset_path_input) || !nzchar(trimws(dataset_path_input))) {
   tool_error(plugin_id, tool_name, "missing_dataset_path", "datasetPath is required")
@@ -340,6 +490,13 @@ if (length(invalid_invariance_levels)) {
     "invarianceLevels may only contain configural, metric, or scalar",
     list(invalidLevels = invalid_invariance_levels)
   )
+}
+diagram_request <- build_diagram_request(
+  path_input = normalize_scalar(payload$diagramPath),
+  format_input = payload$diagramFormat
+)
+if (!is.null(diagram_request$error)) {
+  tool_error(plugin_id, tool_name, "invalid_input", diagram_request$error)
 }
 
 warnings <- character()
@@ -475,6 +632,18 @@ if (measurement_invariance) {
   }
 }
 
+diagram_result <- NULL
+if (!is.null(diagram_request)) {
+  diagram_info <- render_path_diagram(
+    fit = fit,
+    output_path = diagram_request$path,
+    format = diagram_request$format,
+    workspace_root = workspace_root
+  )
+  diagram_result <- diagram_info$result
+  warnings <- c(warnings, diagram_info$warnings)
+}
+
 result <- list(
   plugin = plugin_id,
   tool = tool_name,
@@ -530,6 +699,7 @@ result <- list(
     ciUpper = as.numeric(row[["ci.upper"]]),
     group = if ("group" %in% names(row)) as.integer(row[["group"]]) else NULL
   )),
+  diagram = diagram_result,
   warnings = clean_messages(warnings)
 )
 
