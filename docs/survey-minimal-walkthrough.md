@@ -192,6 +192,7 @@ env CLAW_TOOL_NAME=survey_report \
 
 - 先生成一个更接近 `Results` 结构的 Markdown 草稿
 - 再额外生成 review artifact，帮助你判断这个草稿是否还需要修
+- 如果 review 发现明显 scaffold-level 问题，工具会先自动做一轮定向修订，再输出最终 draft
 
 ---
 

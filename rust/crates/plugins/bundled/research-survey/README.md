@@ -440,6 +440,8 @@ printf '%s' '{
 - 文字是否仍然带有 scaffold / tool-like 痕迹
 - 后续是否需要 targeted revision
 
+当前还会在 review 失败时自动做**一轮有界定向修订**，然后把修订后的结果重新写回最终 markdown 和 review artifact。
+
 ---
 
 ## 8. 依赖要求

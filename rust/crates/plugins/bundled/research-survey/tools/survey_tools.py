@@ -832,6 +832,81 @@ def build_report_sections(report_input: dict[str, Any]) -> dict[str, str]:
     }
 
 
+def revise_report_sections(
+    report_input: dict[str, Any],
+    sections: dict[str, str],
+    required_fixes: list[str],
+) -> dict[str, str]:
+    revised = dict(sections)
+    results = report_input.get("results", {})
+    dataset = report_input.get("dataset", {})
+    notes = report_input.get("notes", [])
+
+    for fix in required_fixes:
+        lowered = str(fix).lower()
+        if "not reported" in lowered or "scaffold-level" in lowered:
+            revised["measurement_results"] = (
+                "Measurement quality indicators were reviewed before interpretation. "
+                f"Sample size was {dataset.get('sampleSize') or 'available in the dataset summary'}, "
+                f"but some reliability or validity statistics were not supplied in the structured inputs. "
+                f"Available values include Cronbach's alpha = {normalize_number(results.get('alpha'))}, "
+                f"McDonald's omega = {normalize_number(results.get('omega'))}, "
+                f"KMO = {normalize_number(results.get('kmo'))}, and Bartlett's test = {results.get('bartlett') or 'not available in this run'}. "
+                "Unavailable statistics should be treated as pending outputs rather than silently interpreted."
+            )
+            if results.get("modelSpec"):
+                revised["primary_results"] = (
+                    "The primary model results are reported in compact form. "
+                    f"Model specification: `{results.get('modelSpec')}`. "
+                    f"Estimator: {results.get('estimator') or 'not supplied'}. "
+                    f"Missing-data handling: {results.get('missingHandling') or 'not supplied'}. "
+                    f"Reported fit indices were CFI = {normalize_number(results.get('cfi'))}, "
+                    f"TLI = {normalize_number(results.get('tli'))}, "
+                    f"RMSEA = {normalize_number(results.get('rmsea'))}, and "
+                    f"SRMR = {normalize_number(results.get('srmr'))}. "
+                    "Any omitted fit statistics should be filled from the upstream psychometrics or SEM contract before manuscript submission."
+                )
+            else:
+                revised["primary_results"] = (
+                    "No fitted CFA or SEM result package was supplied in the current structured inputs, "
+                    "so the primary model-results paragraph remains intentionally limited to reporting that absence. "
+                    "A manuscript-facing Results section should not claim model fit until the upstream model output is attached."
+                )
+            revised["diagnostics"] = (
+                "Diagnostics and reporting limits were retained explicitly. "
+                + (
+                    "Warnings: " + "; ".join(str(item) for item in results.get("warnings", [])[:4]) + ". "
+                    if isinstance(results.get("warnings"), list) and results.get("warnings")
+                    else ""
+                )
+                + (
+                    "Analyst notes: " + "; ".join(str(item) for item in notes[:4]) + ". "
+                    if notes
+                    else ""
+                )
+                + "Any still-missing statistics should be interpreted as missing upstream evidence, not as negative findings."
+            )
+            revised["takeaway"] = (
+                "This reviewed draft now distinguishes clearly between available evidence and still-missing evidence. "
+                "It is suitable as a stronger Results-section draft, but unresolved missing outputs should be completed before final delivery."
+            )
+        if "tool-log wording" in lowered or "payload wording" in lowered or "json-oriented" in lowered:
+            for key, value in revised.items():
+                revised[key] = (
+                    value.replace("payload", "structured input")
+                    .replace("JSON", "structured result")
+                    .replace("json", "structured result")
+                )
+    return revised
+
+
+def render_report_markdown(template: str, replacements: dict[str, Any]) -> str:
+    rendered = template
+    for key, value in replacements.items():
+        rendered = rendered.replace(f"{{{{{key}}}}}", str(value))
+    return rendered
+
+
 def structure_review(report_input: dict[str, Any], markdown: str) -> dict[str, Any]:
     required_headings = [
         "## Objective",
@@ -942,6 +1017,11 @@ def build_review_result(report_input: dict[str, Any], markdown: str) -> dict[str
         "overallVerdict": overall_verdict,
         "overallScore": overall_score,
         "requiredFixes": required_fixes,
+        "revision": {
+            "attempted": False,
+            "appliedFixes": [],
+            "iterations": 0,
+        },
     }
 
 
@@ -991,10 +1071,33 @@ def render_report(
         "diagnostics": sections["diagnostics"],
         "takeaway": sections["takeaway"],
     }
-    rendered = template
-    for key, value in replacements.items():
-        rendered = rendered.replace(f"{{{{{key}}}}}", str(value))
+    rendered = render_report_markdown(template, replacements)
     review = build_review_result(report_input, rendered)
+    if review["overallVerdict"] == "revise" and review["requiredFixes"]:
+        revised_sections = revise_report_sections(
+            report_input=report_input,
+            sections=sections,
+            required_fixes=review["requiredFixes"],
+        )
+        revised_replacements = {
+            "title": report_input["title"],
+            "quality_profile": quality_profile,
+            "objective": revised_sections["objective"],
+            "sample_summary": revised_sections["sample_summary"],
+            "measurement_results": revised_sections["measurement_results"],
+            "primary_results": revised_sections["primary_results"],
+            "diagnostics": revised_sections["diagnostics"],
+            "takeaway": revised_sections["takeaway"],
+        }
+        revised_markdown = render_report_markdown(template, revised_replacements)
+        revised_review = build_review_result(report_input, revised_markdown)
+        revised_review["revision"] = {
+            "attempted": True,
+            "appliedFixes": review["requiredFixes"],
+            "iterations": 1,
+        }
+        rendered = revised_markdown
+        review = revised_review
 
     output_path_raw = payload.get("outputPath")
     artifact = None
