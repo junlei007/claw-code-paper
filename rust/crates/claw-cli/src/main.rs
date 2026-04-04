@@ -2097,6 +2097,26 @@ impl LiveCli {
                 self.run_turn(&build_recipe_cfa_prompt(dataset, target))?;
                 Ok(false)
             }
+            Some("mediation") => {
+                let Some(dataset) = dataset else {
+                    println!(
+                        "Usage: /recipe mediation [x -> m -> y]  (load a dataset first with /dataset load <path>)"
+                    );
+                    return Ok(false);
+                };
+                self.run_turn(&build_recipe_mediation_prompt(dataset, target))?;
+                Ok(false)
+            }
+            Some("moderation") => {
+                let Some(dataset) = dataset else {
+                    println!(
+                        "Usage: /recipe moderation [x * w -> y]  (load a dataset first with /dataset load <path>)"
+                    );
+                    return Ok(false);
+                };
+                self.run_turn(&build_recipe_moderation_prompt(dataset, target))?;
+                Ok(false)
+            }
             Some("report") => {
                 let Some(dataset) = dataset else {
                     println!(
@@ -2109,7 +2129,7 @@ impl LiveCli {
             }
             Some(other) => {
                 println!(
-                    "Unknown /recipe action '{other}'. Use /recipe score, /recipe reliability, /recipe cfa [model-spec], /recipe report, or /recipe."
+                    "Unknown /recipe action '{other}'. Use /recipe score, /recipe reliability, /recipe cfa [model-spec], /recipe mediation [x -> m -> y], /recipe moderation [x * w -> y], /recipe report, or /recipe."
                 );
                 Ok(false)
             }
@@ -2776,9 +2796,9 @@ fn format_dataset_loaded_report(path: &str) -> String {
 fn format_recipe_help_report(active_dataset: Option<&str>) -> String {
     match active_dataset {
         Some(path) => format!(
-            "Recipe\n  Active dataset   {path}\n  Shortcuts        /recipe score · /recipe reliability · /recipe cfa [model-spec] · /recipe report"
+            "Recipe\n  Active dataset   {path}\n  Shortcuts        /recipe score · /recipe reliability · /recipe cfa [model-spec] · /recipe mediation [x -> m -> y] · /recipe moderation [x * w -> y] · /recipe report"
         ),
-        None => "Recipe\n  Active dataset   none\n  Next step        /dataset load <path>\n  Shortcuts        /recipe score · /recipe reliability · /recipe cfa [model-spec] · /recipe report".to_string(),
+        None => "Recipe\n  Active dataset   none\n  Next step        /dataset load <path>\n  Shortcuts        /recipe score · /recipe reliability · /recipe cfa [model-spec] · /recipe mediation [x -> m -> y] · /recipe moderation [x * w -> y] · /recipe report".to_string(),
     }
 }
 
@@ -2844,6 +2864,52 @@ Goal:\n\
 - surface convergence / singularity / collinearity warnings clearly\n\
 - avoid inventing scaleDefinitions, reverseItems, or CFA structure\n\n\
 If the plugin is unavailable, say that `research-survey@bundled` must be enabled."
+    )
+}
+
+fn build_recipe_mediation_prompt(path: &str, variable_roles: Option<&str>) -> String {
+    let role_instruction = match variable_roles.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(spec) => format!(
+            "Use this mediation role hint if it is consistent with the dataset and the user's intent:\n`{spec}`\n\n"
+        ),
+        None => "If X/M/Y roles are still missing, ask for the minimum missing role assignment before attempting the run.\n\n".to_string(),
+    };
+    format!(
+        "Run the questionnaire mediation workflow for dataset `{path}`.\n\n\
+{role_instruction}Start from `survey_metadata` only if you still need schema or scored-variable context; otherwise prefer the PROCESSv50 external plugin path.\n\
+If `processv50_run` is available, use it with `datasetPath` set to `{path}` and with explicit `x`, `m`, and `y` roles.\n\
+When the request is a standard simple mediation and no better PROCESS model is specified, default to model `4`; otherwise ask for the exact model only when the requested structure is ambiguous.\n\n\
+Goal:\n\
+- keep this on scored observed variables rather than inventing latent-variable structure\n\
+- verify that X/M/Y roles are explicit and suitable for an observed-variable PROCESS-style run\n\
+- request a local `processScriptPath` (or tell the user to set `PROCESSV50_R_PATH`) if the execution path is not already available\n\
+- recommend an `outputPath` artifact for the text report when the user has not provided one\n\
+- surface bootstrap / confidence-level choices and any blockers clearly\n\
+- do not fabricate indirect effects, significance claims, or PROCESS output\n\n\
+If `processv50_run` is unavailable, say that `research-processv50@external` must be enabled or installed from `examples/external-plugins/research-processv50`, then fall back to the questionnaire PROCESSv50 SOP for planning guidance only."
+    )
+}
+
+fn build_recipe_moderation_prompt(path: &str, variable_roles: Option<&str>) -> String {
+    let role_instruction = match variable_roles.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(spec) => format!(
+            "Use this moderation role hint if it is consistent with the dataset and the user's intent:\n`{spec}`\n\n"
+        ),
+        None => "If X/W/Y roles are still missing, ask for the minimum missing role assignment before attempting the run.\n\n".to_string(),
+    };
+    format!(
+        "Run the questionnaire moderation workflow for dataset `{path}`.\n\n\
+{role_instruction}Start from `survey_metadata` only if you still need schema or scored-variable context; otherwise prefer the PROCESSv50 external plugin path.\n\
+If `processv50_run` is available, use it with `datasetPath` set to `{path}` and with explicit `x`, `w`, and `y` roles.\n\
+When the request is a standard simple moderation and no better PROCESS model is specified, default to model `1`; otherwise ask for the exact model only when the requested structure is ambiguous.\n\n\
+Goal:\n\
+- keep this on scored observed variables rather than inventing latent-variable structure\n\
+- verify that X/W/Y roles are explicit and suitable for an observed-variable PROCESS-style run\n\
+- request a local `processScriptPath` (or tell the user to set `PROCESSV50_R_PATH`) if the execution path is not already available\n\
+- recommend an `outputPath` artifact for the text report when the user has not provided one\n\
+- surface centering / interaction decisions, bootstrap / confidence-level choices, and blockers clearly\n\
+- do not fabricate interaction effects, significance claims, or PROCESS output\n\n\
+If `processv50_run` is unavailable, say that `research-processv50@external` must be enabled or installed from `examples/external-plugins/research-processv50`, then fall back to the questionnaire PROCESSv50 SOP for planning guidance only."
     )
 }
 
@@ -5210,6 +5276,7 @@ fn format_tool_result(name: &str, output: &str, theme_kind: ThemeKind, is_error:
         "survey_score" => format_survey_score_result(icon, &parsed),
         "survey_psychometrics" => format_survey_psychometrics_result(icon, &parsed),
         "survey_report" => format_survey_report_result(icon, &parsed),
+        "processv50_run" => format_processv50_run_result(icon, &parsed),
         _ => format_generic_tool_result(icon, name, &parsed),
     };
     format_section_card(
@@ -5583,17 +5650,16 @@ fn artifact_display_path(value: Option<&serde_json::Value>) -> Option<&str> {
 }
 
 fn collect_string_values(value: Option<&serde_json::Value>, limit: usize) -> Vec<String> {
-    value
-        .and_then(serde_json::Value::as_array)
-        .map(|items| {
-            items
-                .iter()
-                .filter_map(serde_json::Value::as_str)
-                .take(limit)
-                .map(ToOwned::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default()
+    match value {
+        Some(serde_json::Value::String(item)) => vec![item.clone()],
+        Some(serde_json::Value::Array(items)) => items
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .take(limit)
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    }
 }
 
 fn format_metric(value: f64) -> String {
@@ -6019,6 +6085,129 @@ fn format_survey_report_result(icon: &str, parsed: &serde_json::Value) -> String
     lines.join("\n")
 }
 
+fn format_processv50_run_result(icon: &str, parsed: &serde_json::Value) -> String {
+    let dataset = parsed.get("dataset").and_then(serde_json::Value::as_object);
+    let analysis = parsed
+        .get("analysis")
+        .and_then(serde_json::Value::as_object);
+    let process_script = parsed
+        .get("processScript")
+        .and_then(serde_json::Value::as_object);
+    let artifacts = parsed
+        .get("artifacts")
+        .and_then(serde_json::Value::as_object);
+
+    let rows = dataset
+        .and_then(|value| value.get("rows"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let columns = dataset
+        .and_then(|value| value.get("columns"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let model = analysis
+        .and_then(|value| value.get("model"))
+        .and_then(serde_json::Value::as_i64)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "?".to_string());
+    let y = analysis
+        .and_then(|value| value.get("y"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("?");
+    let x = analysis
+        .and_then(|value| value.get("x"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("?");
+
+    let mut lines = vec![format!(
+        "{icon} \x1b[38;5;245mprocessv50_run\x1b[0m model {model} · {rows} rows · {columns} columns"
+    )];
+
+    if let Some(path) = dataset.and_then(|value| {
+        value
+            .get("workspaceRelativePath")
+            .or_else(|| value.get("path"))
+            .and_then(serde_json::Value::as_str)
+    }) {
+        lines.push(format!("\x1b[2mDataset\x1b[0m {path}"));
+    }
+
+    let mediation_roles = collect_string_values(analysis.and_then(|value| value.get("m")), 4);
+    let moderator_roles = collect_string_values(analysis.and_then(|value| value.get("w")), 4);
+    let z_roles = collect_string_values(analysis.and_then(|value| value.get("z")), 4);
+    let covariates = collect_string_values(analysis.and_then(|value| value.get("covariates")), 6);
+    lines.push(format!(
+        "\x1b[2mRoles\x1b[0m x {x} · y {y} · m {} · w {} · z {}",
+        if mediation_roles.is_empty() {
+            "—".to_string()
+        } else {
+            mediation_roles.join(", ")
+        },
+        if moderator_roles.is_empty() {
+            "—".to_string()
+        } else {
+            moderator_roles.join(", ")
+        },
+        if z_roles.is_empty() {
+            "—".to_string()
+        } else {
+            z_roles.join(", ")
+        }
+    ));
+
+    let boot = analysis
+        .and_then(|value| value.get("boot"))
+        .and_then(serde_json::Value::as_i64)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "not reported".to_string());
+    let conf = value_as_f64(analysis.and_then(|value| value.get("conf")))
+        .map(format_metric)
+        .unwrap_or_else(|| "not reported".to_string());
+    let center = analysis
+        .and_then(|value| value.get("center"))
+        .and_then(serde_json::Value::as_i64)
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "not reported".to_string());
+    lines.push(format!(
+        "\x1b[2mSettings\x1b[0m boot {boot} · conf {conf} · center {center}"
+    ));
+
+    if !covariates.is_empty() {
+        lines.push(format!(
+            "\x1b[2mCovariates\x1b[0m {}",
+            covariates.join(", ")
+        ));
+    }
+
+    if let Some(path) = process_script.and_then(|value| {
+        value
+            .get("workspaceRelativePath")
+            .or_else(|| value.get("path"))
+            .and_then(serde_json::Value::as_str)
+    }) {
+        lines.push(format!("\x1b[2mProcess script\x1b[0m {path}"));
+    }
+
+    if let Some(path) = artifacts
+        .and_then(|value| value.get("report"))
+        .and_then(|value| {
+            value
+                .get("workspaceRelativePath")
+                .or_else(|| value.get("path"))
+        })
+        .and_then(serde_json::Value::as_str)
+    {
+        lines.push(format!("\x1b[2mReport\x1b[0m {path}"));
+    }
+
+    let warnings = collect_string_values(parsed.get("warnings"), 3);
+    if !warnings.is_empty() {
+        lines.push(format!("\x1b[38;5;203m{}\x1b[0m", warnings.join("\n")));
+    }
+
+    lines.join("\n")
+}
+
 fn format_generic_tool_result(icon: &str, name: &str, parsed: &serde_json::Value) -> String {
     let rendered_output = match parsed {
         serde_json::Value::String(text) => text.clone(),
@@ -6389,6 +6578,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(
         out,
+        "  {cli_name} plugins install ../examples/external-plugins/research-processv50"
+    )?;
+    writeln!(
+        out,
         "  {cli_name} project-skill init survey-cleaning-sop --title \"Survey Cleaning SOP\" --description \"Draft workflow for local survey cleaning.\" --domain survey --use-when \"Use before scoring\" --source docs/research-method-standards.md"
     )?;
     writeln!(
@@ -6409,7 +6602,8 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_dataset_describe_prompt, build_recipe_cfa_prompt, build_recipe_reliability_prompt,
+        build_dataset_describe_prompt, build_recipe_cfa_prompt, build_recipe_mediation_prompt,
+        build_recipe_moderation_prompt, build_recipe_reliability_prompt,
         build_recipe_report_prompt, build_recipe_score_prompt, describe_tool_progress,
         doctor_project_skill, filter_tool_specs, format_compact_report, format_cost_report,
         format_dataset_loaded_report, format_dataset_status_report,
@@ -7493,6 +7687,9 @@ mod tests {
         assert!(help.contains("claw agents"));
         assert!(help.contains("claw skills"));
         assert!(help.contains("claw /skills"));
+        assert!(
+            help.contains("claw plugins install ../examples/external-plugins/research-processv50")
+        );
     }
 
     #[test]
@@ -7787,7 +7984,7 @@ mod tests {
         assert!(help.contains("Shift+Enter/Ctrl+J"));
         assert!(help.contains("/theme toggle"));
         assert!(help.contains("/dataset [load <path>|describe [path]]"));
-        assert!(help.contains("/recipe [score|reliability|cfa|report]"));
+        assert!(help.contains("/recipe [score|reliability|cfa|mediation|moderation|report]"));
         assert!(help.contains("/compact before long sessions"));
     }
 
@@ -7821,11 +8018,19 @@ mod tests {
         let reliability = build_recipe_reliability_prompt("fixtures/mini.csv");
         let cfa =
             build_recipe_cfa_prompt("fixtures/mini.csv", Some("engagement =~ q1 + q2 + q3 + q4"));
+        let mediation =
+            build_recipe_mediation_prompt("fixtures/mini.csv", Some("stress -> coping -> burnout"));
+        let moderation = build_recipe_moderation_prompt(
+            "fixtures/mini.csv",
+            Some("stress * support -> burnout"),
+        );
         let report = build_recipe_report_prompt("fixtures/mini.csv");
 
         assert!(help.contains("fixtures/mini.csv"));
         assert!(help.contains("/recipe score"));
         assert!(help.contains("/recipe reliability"));
+        assert!(help.contains("/recipe mediation"));
+        assert!(help.contains("/recipe moderation"));
         assert!(score.contains("survey_score"));
         assert!(score.contains("fixtures/mini.csv"));
         assert!(score.contains("do not invent scaleDefinitions"));
@@ -7836,9 +8041,64 @@ mod tests {
         assert!(cfa.contains("cfaModel"));
         assert!(cfa.contains("engagement =~ q1 + q2 + q3 + q4"));
         assert!(cfa.contains("survey_psychometrics"));
+        assert!(mediation.contains("processv50_run"));
+        assert!(mediation.contains("default to model `4`"));
+        assert!(mediation.contains("stress -> coping -> burnout"));
+        assert!(mediation.contains("research-processv50@external"));
+        assert!(moderation.contains("processv50_run"));
+        assert!(moderation.contains("default to model `1`"));
+        assert!(moderation.contains("stress * support -> burnout"));
+        assert!(moderation.contains("PROCESSV50_R_PATH"));
         assert!(report.contains("survey_report"));
         assert!(report.contains("delivery readiness"));
         assert!(report.contains("do not fabricate"));
+    }
+
+    #[test]
+    fn processv50_rendering_surfaces_roles_settings_and_artifacts() {
+        let output = json!({
+            "dataset": {
+                "workspaceRelativePath": "fixtures/process_demo.csv",
+                "rows": 128,
+                "columns": 12
+            },
+            "analysis": {
+                "model": 4,
+                "y": "burnout",
+                "x": "stress",
+                "m": ["coping"],
+                "w": "support",
+                "z": [],
+                "covariates": ["age", "tenure"],
+                "boot": 5000,
+                "conf": 95,
+                "center": 0
+            },
+            "processScript": {
+                "workspaceRelativePath": "processv50/PROCESS_R_v5/process.R"
+            },
+            "artifacts": {
+                "report": {
+                    "workspaceRelativePath": ".claw/artifacts/processv50-report.txt"
+                }
+            },
+            "warnings": [
+                "No moderator variable was provided even though the selected model is often used for moderation-style workflows."
+            ]
+        })
+        .to_string();
+
+        let rendered = format_tool_result("processv50_run", &output, ThemeKind::Dark, false);
+
+        assert!(rendered.contains("processv50_run"));
+        assert!(rendered.contains("model 4 · 128 rows · 12 columns"));
+        assert!(rendered.contains("fixtures/process_demo.csv"));
+        assert!(rendered.contains("x stress · y burnout · m coping · w support · z —"));
+        assert!(rendered.contains("boot 5000 · conf 95 · center 0"));
+        assert!(rendered.contains("age, tenure"));
+        assert!(rendered.contains("processv50/PROCESS_R_v5/process.R"));
+        assert!(rendered.contains(".claw/artifacts/processv50-report.txt"));
+        assert!(rendered.contains("No moderator variable was provided"));
     }
 
     #[test]
