@@ -30,6 +30,7 @@ The wrapper:
 - sources the local `process.R`
 - calls `process(...)`
 - captures console output into a text artifact
+- writes a machine-readable JSON sidecar artifact next to the text report when possible
 - returns structured metadata describing the run
 
 ## Current output shape
@@ -39,6 +40,7 @@ The wrapper:
 - `analysis`
 - `processScript`
 - `artifacts.report`
+- `artifacts.reportJson`
 - `reportParse`
   - `reportParse.detectedSections`
   - `reportParse.effectSummary`

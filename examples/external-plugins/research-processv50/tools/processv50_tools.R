@@ -95,6 +95,14 @@ resolve_output_path <- function(raw_path) {
   normalizePath(file.path(workspace_root, candidate), winslash = "/", mustWork = FALSE)
 }
 
+derive_json_sidecar_path <- function(path) {
+  replaced <- sub("(\\.[^./]+)$", ".json", path, perl = TRUE)
+  if (!identical(replaced, path)) {
+    return(replaced)
+  }
+  paste0(path, ".json")
+}
+
 workspace_relative_path <- function(path) {
   normalized <- normalizePath(path, winslash = "/", mustWork = FALSE)
   prefix <- paste0(workspace_root, "/")
@@ -376,6 +384,76 @@ parse_report_text <- function(report_text) {
   )
 }
 
+build_response_payload <- function(
+  plugin_id,
+  tool_name,
+  dataset_path,
+  dataset,
+  model,
+  y_value,
+  x_value,
+  m_value,
+  w_value,
+  z_value,
+  cov_value,
+  boot_value,
+  conf_value,
+  center_value,
+  seed_value,
+  process_script_path,
+  output_path,
+  report_json_path,
+  report_parse,
+  warnings
+) {
+  artifacts <- list(
+    report = list(
+      path = output_path,
+      workspaceRelativePath = workspace_relative_path(output_path),
+      kind = "text"
+    )
+  )
+  if (!is.null(report_json_path)) {
+    artifacts$reportJson <- list(
+      path = report_json_path,
+      workspaceRelativePath = workspace_relative_path(report_json_path),
+      kind = "json"
+    )
+  }
+
+  list(
+    plugin = plugin_id,
+    tool = tool_name,
+    status = "ok",
+    dataset = list(
+      path = dataset_path,
+      workspaceRelativePath = workspace_relative_path(dataset_path),
+      rows = nrow(dataset),
+      columns = ncol(dataset)
+    ),
+    analysis = list(
+      model = model,
+      y = y_value,
+      x = x_value,
+      m = unname(m_value),
+      w = unname(w_value),
+      z = unname(z_value),
+      covariates = unname(cov_value),
+      boot = if (is.na(boot_value)) NULL else boot_value,
+      conf = if (is.na(conf_value)) NULL else conf_value,
+      center = if (is.na(center_value)) NULL else center_value,
+      seed = if (is.na(seed_value)) NULL else seed_value
+    ),
+    processScript = list(
+      path = process_script_path,
+      workspaceRelativePath = workspace_relative_path(process_script_path)
+    ),
+    artifacts = artifacts,
+    reportParse = report_parse,
+    warnings = unname(warnings)
+  )
+}
+
 dataset_path_input <- normalize_scalar(field("datasetPath"))
 if (is.null(dataset_path_input) || !nzchar(trimws(dataset_path_input))) {
   tool_error(plugin_id, tool_name, "missing_dataset_path", "datasetPath is required for processv50_run")
@@ -467,6 +545,7 @@ if (is.null(output_path_raw) || !nzchar(trimws(output_path_raw))) {
 output_path <- resolve_output_path(output_path_raw)
 dir.create(dirname(output_path), recursive = TRUE, showWarnings = FALSE)
 writeLines(report_text, output_path, useBytes = TRUE)
+report_json_path <- derive_json_sidecar_path(output_path)
 
 warnings <- character()
 if (is.null(normalize_scalar(field("processScriptPath"))) && !nzchar(Sys.getenv("PROCESSV50_R_PATH", ""))) {
@@ -479,40 +558,64 @@ if (!length(w_value) && model %in% c(1, 7, 8, 14, 58, 59)) {
   warnings <- c(warnings, "No moderator variable was provided even though the selected model is often used for moderation-style workflows.")
 }
 
-emit_json(list(
-  plugin = plugin_id,
-  tool = tool_name,
-  status = "ok",
-  dataset = list(
-    path = dataset_path,
-    workspaceRelativePath = workspace_relative_path(dataset_path),
-    rows = nrow(dataset),
-    columns = ncol(dataset)
-  ),
-  analysis = list(
+response_payload <- build_response_payload(
+  plugin_id = plugin_id,
+  tool_name = tool_name,
+  dataset_path = dataset_path,
+  dataset = dataset,
+  model = model,
+  y_value = y_value,
+  x_value = x_value,
+  m_value = m_value,
+  w_value = w_value,
+  z_value = z_value,
+  cov_value = cov_value,
+  boot_value = boot_value,
+  conf_value = conf_value,
+  center_value = center_value,
+  seed_value = seed_value,
+  process_script_path = process_script_path,
+  output_path = output_path,
+  report_json_path = report_json_path,
+  report_parse = report_parse,
+  warnings = warnings
+)
+
+json_sidecar_error <- tryCatch(
+  {
+    writeLines(json_text(response_payload), report_json_path, useBytes = TRUE)
+    NULL
+  },
+  error = function(err) err$message
+)
+
+if (!is.null(json_sidecar_error)) {
+  warnings <- c(
+    warnings,
+    sprintf("Failed to write PROCESS JSON sidecar artifact: %s", json_sidecar_error)
+  )
+  response_payload <- build_response_payload(
+    plugin_id = plugin_id,
+    tool_name = tool_name,
+    dataset_path = dataset_path,
+    dataset = dataset,
     model = model,
-    y = y_value,
-    x = x_value,
-    m = unname(m_value),
-    w = unname(w_value),
-    z = unname(z_value),
-    covariates = unname(cov_value),
-    boot = if (is.na(boot_value)) NULL else boot_value,
-    conf = if (is.na(conf_value)) NULL else conf_value,
-    center = if (is.na(center_value)) NULL else center_value,
-    seed = if (is.na(seed_value)) NULL else seed_value
-  ),
-  processScript = list(
-    path = process_script_path,
-    workspaceRelativePath = workspace_relative_path(process_script_path)
-  ),
-  artifacts = list(
-    report = list(
-      path = output_path,
-      workspaceRelativePath = workspace_relative_path(output_path),
-      kind = "text"
-    )
-  ),
-  reportParse = report_parse,
-  warnings = unname(warnings)
-))
+    y_value = y_value,
+    x_value = x_value,
+    m_value = m_value,
+    w_value = w_value,
+    z_value = z_value,
+    cov_value = cov_value,
+    boot_value = boot_value,
+    conf_value = conf_value,
+    center_value = center_value,
+    seed_value = seed_value,
+    process_script_path = process_script_path,
+    output_path = output_path,
+    report_json_path = NULL,
+    report_parse = report_parse,
+    warnings = warnings
+  )
+}
+
+emit_json(response_payload)

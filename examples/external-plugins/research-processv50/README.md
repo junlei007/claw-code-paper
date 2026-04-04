@@ -41,7 +41,7 @@ If your project needs **latent variables** or latent mediation / moderation, pre
 
 | Tool | Purpose |
 | --- | --- |
-| `processv50_run` | Run a PROCESSv50-style model through a local `process.R` path and capture the text report as an artifact |
+| `processv50_run` | Run a PROCESSv50-style model through a local `process.R` path and capture both the text report artifact and a JSON sidecar summary |
 
 ---
 
@@ -85,12 +85,14 @@ env CLAW_TOOL_NAME=processv50_run \
     Rscript examples/external-plugins/research-processv50/tools/processv50_tools.R
 ```
 
+When `outputPath` is set to something like `.claw/artifacts/processv50-report.txt`, the wrapper now also tries to emit a sibling JSON sidecar such as `.claw/artifacts/processv50-report.json` containing the structured metadata and parsed report summary.
+
 ---
 
 ## Current limitations
 
 - CSV-style datasets only in this prototype
-- preserves the PROCESS text report and only adds shallow structured section/effect extraction in JSON output
+- preserves the PROCESS text report and only adds shallow structured section/effect extraction in the JSON sidecar / tool output
 - depends on a locally provided `process.R` script path
 - does not yet standardize model-number presets, coefficient parsing, or reporting tables
 - should remain external / private until the execution and redistribution boundaries are fully settled

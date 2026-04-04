@@ -6298,6 +6298,18 @@ fn format_processv50_run_result(icon: &str, parsed: &serde_json::Value) -> Strin
         lines.push(format!("\x1b[2mReport\x1b[0m {path}"));
     }
 
+    if let Some(path) = artifacts
+        .and_then(|value| value.get("reportJson"))
+        .and_then(|value| {
+            value
+                .get("workspaceRelativePath")
+                .or_else(|| value.get("path"))
+        })
+        .and_then(serde_json::Value::as_str)
+    {
+        lines.push(format!("\x1b[2mReport JSON\x1b[0m {path}"));
+    }
+
     let outcomes = collect_string_values(report_parse.and_then(|value| value.get("outcomes")), 4);
     let detected_sections = collect_string_values(
         report_parse.and_then(|value| value.get("detectedSections")),
@@ -8249,6 +8261,9 @@ mod tests {
             "artifacts": {
                 "report": {
                     "workspaceRelativePath": ".claw/artifacts/processv50-report.txt"
+                },
+                "reportJson": {
+                    "workspaceRelativePath": ".claw/artifacts/processv50-report.json"
                 }
             },
             "reportParse": {
@@ -8290,6 +8305,7 @@ mod tests {
         assert!(rendered.contains("age, tenure"));
         assert!(rendered.contains("processv50/PROCESS_R_v5/process.R"));
         assert!(rendered.contains(".claw/artifacts/processv50-report.txt"));
+        assert!(rendered.contains(".claw/artifacts/processv50-report.json"));
         assert!(rendered.contains("Structured"));
         assert!(rendered.contains("outcomes burnout"));
         assert!(rendered.contains("modelSummary, directEffect, indirectEffects"));
