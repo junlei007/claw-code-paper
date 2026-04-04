@@ -85,13 +85,39 @@ env CLAW_TOOL_NAME=processv50_run \
     Rscript examples/external-plugins/research-processv50/tools/processv50_tools.R
 ```
 
+Using the richer bundled moderation-report fixture to validate native conditional-effect / JN parsing:
+
+```bash
+printf '%s' '{
+  "datasetPath": "examples/external-plugins/research-processv50/fixtures/process_demo.csv",
+  "model": 1,
+  "y": "burnout",
+  "x": "stress",
+  "w": "support",
+  "processScriptPath": "examples/external-plugins/research-processv50/fixtures/mock_process_moderation_sections.R",
+  "outputPath": ".claw/artifacts/processv50-native-demo.txt"
+}' | \
+env CLAW_TOOL_NAME=processv50_run \
+    CLAW_PLUGIN_ID=research-processv50@example \
+    CLAW_PLUGIN_ROOT=$(pwd)/examples/external-plugins/research-processv50 \
+    CLAW_WORKSPACE_ROOT=$(pwd) \
+    Rscript examples/external-plugins/research-processv50/tools/processv50_tools.R
+```
+
 When `outputPath` is set to something like `.claw/artifacts/processv50-report.txt`, the wrapper now also tries to emit:
 
 - a sibling JSON sidecar such as `.claw/artifacts/processv50-report.json`
 - for simple moderation runs (currently PROCESS model `1` with one numeric moderator), a moderation decomposition figure such as `.claw/artifacts/processv50-report-moderation-decomposition.png`
 - for the same simple moderation case, a Johnson-Neyman figure such as `.claw/artifacts/processv50-report-johnson-neyman.png`
+- when plot generation succeeds, a plot metadata sidecar such as `.claw/artifacts/processv50-report-plots.json`
 
-The plot artifacts are currently derived in R from the fitted simple moderation model and are meant as compact handoff visuals, not as a claim that every PROCESS model family is already fully standardized into one plotting contract.
+The plotting path now prefers PROCESS-native report sections when they are available:
+
+- `Data for visualizing the conditional effect of the focal predictor:`
+- `Moderator value(s) defining Johnson-Neyman significance region(s):`
+- `Conditional effect of focal predictor at values of the moderator:`
+
+If those sections are not present but the current run is compatible with a simple moderation fallback, the wrapper reconstructs the visuals from an R linear-model approximation instead.
 
 ---
 
@@ -99,7 +125,7 @@ The plot artifacts are currently derived in R from the fitted simple moderation 
 
 - CSV-style datasets only in this prototype
 - preserves the PROCESS text report and only adds shallow structured section/effect extraction in the JSON sidecar / tool output
-- moderation decomposition / JN plotting currently targets simple numeric moderation (model `1`) rather than every PROCESS variant
+- moderation decomposition / JN plotting is strongest when PROCESS emits native visualization / JN sections; otherwise it falls back only when the run is compatible with a simple numeric moderation reconstruction
 - depends on a locally provided `process.R` script path
 - does not yet standardize model-number presets, coefficient parsing, or reporting tables
 - should remain external / private until the execution and redistribution boundaries are fully settled

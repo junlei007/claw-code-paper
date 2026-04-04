@@ -6280,6 +6280,9 @@ fn format_processv50_run_result(icon: &str, parsed: &serde_json::Value) -> Strin
         .get("reportParse")
         .and_then(serde_json::Value::as_object);
     let plots = parsed.get("plots").and_then(serde_json::Value::as_object);
+    let report_parse_jn = report_parse
+        .and_then(|value| value.get("johnsonNeyman"))
+        .and_then(serde_json::Value::as_object);
     let effect_summary = report_parse
         .and_then(|value| value.get("effectSummary"))
         .and_then(serde_json::Value::as_object);
@@ -6399,6 +6402,18 @@ fn format_processv50_run_result(icon: &str, parsed: &serde_json::Value) -> Strin
         lines.push(format!("\x1b[2mReport JSON\x1b[0m {path}"));
     }
 
+    if let Some(path) = artifacts
+        .and_then(|value| value.get("plotMetadataJson"))
+        .and_then(|value| {
+            value
+                .get("workspaceRelativePath")
+                .or_else(|| value.get("path"))
+        })
+        .and_then(serde_json::Value::as_str)
+    {
+        lines.push(format!("\x1b[2mPlot metadata\x1b[0m {path}"));
+    }
+
     let decomposition_plot =
         artifact_display_path(artifacts.and_then(|value| value.get("moderationDecompositionPlot")));
     let jn_plot = artifact_display_path(artifacts.and_then(|value| value.get("johnsonNeymanPlot")));
@@ -6479,6 +6494,7 @@ fn format_processv50_run_result(icon: &str, parsed: &serde_json::Value) -> Strin
     if let Some(jn_plot) = plots
         .and_then(|value| value.get("johnsonNeyman"))
         .and_then(serde_json::Value::as_object)
+        .or(report_parse_jn)
     {
         let pattern = jn_plot
             .get("significancePattern")
@@ -8414,6 +8430,9 @@ mod tests {
                 "reportJson": {
                     "workspaceRelativePath": ".claw/artifacts/processv50-report.json"
                 },
+                "plotMetadataJson": {
+                    "workspaceRelativePath": ".claw/artifacts/processv50-report-plots.json"
+                },
                 "moderationDecompositionPlot": {
                     "workspaceRelativePath": ".claw/artifacts/processv50-report-moderation-decomposition.png"
                 },
@@ -8422,8 +8441,21 @@ mod tests {
                 }
             },
             "reportParse": {
+                "parserVersion": "0.2.0",
                 "outcomes": ["burnout"],
                 "detectedSections": ["modelSummary", "directEffect", "indirectEffects", "conditionalDirectEffects", "conditionalIndirectEffects"],
+                "johnsonNeyman": {
+                    "bounds": [2.731, 4.418]
+                },
+                "visualizationData": [
+                    {
+                        "columns": ["stress", "support", "burnout"],
+                        "rows": [
+                            {"stress": 2.9, "support": 2.5, "burnout": 3.1},
+                            {"stress": 4.1, "support": 4.0, "burnout": 4.3}
+                        ]
+                    }
+                ],
                 "effectSummary": {
                     "direct": [
                         {
@@ -8506,6 +8538,7 @@ mod tests {
         assert!(rendered.contains("processv50/PROCESS_R_v5/process.R"));
         assert!(rendered.contains(".claw/artifacts/processv50-report.txt"));
         assert!(rendered.contains(".claw/artifacts/processv50-report.json"));
+        assert!(rendered.contains(".claw/artifacts/processv50-report-plots.json"));
         assert!(rendered.contains(".claw/artifacts/processv50-report-moderation-decomposition.png"));
         assert!(rendered.contains(".claw/artifacts/processv50-report-johnson-neyman.png"));
         assert!(rendered.contains("Structured"));
