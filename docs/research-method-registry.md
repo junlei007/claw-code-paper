@@ -149,7 +149,7 @@ The following categories are expected to be needed, but are not currently expose
 | --- | --- | --- |
 | EFA / factor extraction / rotation | `planned` | external plugin first, promote if reused broadly |
 | questionnaire SEM / CFA / invariance | `external` / `skill-first` | start from [`./questionnaire-sem-rehearsal.md`](./questionnaire-sem-rehearsal.md), [`../examples/project-skills/questionnaire-sem-sop/`](../examples/project-skills/questionnaire-sem-sop/), and [`../examples/external-plugins/research-sem/`](../examples/external-plugins/research-sem/) |
-| regression / mediation / moderation | `external` | start from [`../examples/external-plugins/research-regression/`](../examples/external-plugins/research-regression/) and expand only after the contract stabilizes |
+| regression / mediation / moderation | `external` / `manual` | start from [`../examples/project-skills/questionnaire-processv50-sop/`](../examples/project-skills/questionnaire-processv50-sop/), [`../examples/project-skills/questionnaire-mediation-moderation-sop/`](../examples/project-skills/questionnaire-mediation-moderation-sop/), and [`../examples/external-plugins/research-regression/`](../examples/external-plugins/research-regression/) |
 | grouped comparisons / ANOVA variants | `planned` | external plugin first |
 | publication-grade table generation | `planned` | plugin if output contract stabilizes |
 | domain-specific niche methods | `manual` / `external` | do not bundle by default |

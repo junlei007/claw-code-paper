@@ -6,6 +6,7 @@ archive/
 .port_sessions/
 .clawd-agents/
 claw-code-main/
+processv50/
 # Claude Code local artifacts
 .claude/settings.local.json
 .claude/sessions/

@@ -1,0 +1,56 @@
+{
+  "name": "questionnaire-processv50-sop",
+  "title": "Questionnaire PROCESSv50 SOP",
+  "description": "Governed workflow for questionnaire-based PROCESSv50 conditional process analysis.",
+  "domain": "survey",
+  "generated_at": "2026-04-04T03:28:32Z",
+  "generated_by": "claw project-skill init",
+  "use_when": "Use when a questionnaire project needs a PROCESSv50-style mediation, moderation, or conditional process workflow before a stable plugin contract exists.",
+  "input_expectations": [
+    "Scored questionnaire dataset with explicit X/M/Y/W variable definitions",
+    "A stated mediation, moderation, or conditional process hypothesis plus any covariates"
+  ],
+  "workflow": [
+    "Confirm scoring readiness, reverse-key handling, and missing-data policy before modeling.",
+    "Lock X/M/Y/W roles and document the intended PROCESSv50 model family.",
+    "Record bootstrap, interval, centering, and interaction-construction decisions explicitly.",
+    "Summarize findings conservatively and keep statistical output separate from causal claims."
+  ],
+  "outputs": [
+    "Analysis decision log",
+    "PROCESSv50 model specification note",
+    "Interpretation checklist for indirect, interaction, or conditional effects"
+  ],
+  "limits": [
+    "This skill does not replace statistical review, publication judgment, or a stable executable plugin contract.",
+    "Local PROCESSv50 materials should be treated as project-local references until redistribution / packaging boundaries are reviewed."
+  ],
+  "failure_checks": [
+    "Stop if X/M/Y/W roles are ambiguous or reverse-key handling is unverified.",
+    "Stop if bootstrap or interaction-probing decisions are missing for the requested inference."
+  ],
+  "evaluation_examples": [
+    "Primary project example: perceived stress affects burnout via coping in a PROCESSv50 mediation workflow.",
+    "Held-out example: social support moderates the stress -> wellbeing relation in a PROCESSv50-style moderation workflow."
+  ],
+  "verification_status": "drafted",
+  "held_out_validation_status": "pending",
+  "maturity_level": "draft",
+  "source_materials": [
+    {
+      "path": "../../../docs/processv50-notes.md",
+      "exists": true,
+      "sha256": "debd3d3d8133bc1a6138ce0985c0bc523fee9059fc911af7408ba122057ccdef"
+    },
+    {
+      "path": "../../../docs/research-method-standards.md",
+      "exists": true,
+      "sha256": "f6281b254df5fbec6c0f53e62043f52e96d48c08e57fcf0f8529ad560c6fa9c6"
+    },
+    {
+      "path": "../../../docs/project-skill-synthesis.md",
+      "exists": true,
+      "sha256": "c8889e547e6d5012f9acd9272955aa8a036579f5af6f976057e12cea3cdf71eb"
+    }
+  ]
+}
