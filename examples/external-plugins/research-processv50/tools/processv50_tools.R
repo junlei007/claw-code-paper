@@ -135,6 +135,16 @@ default_process_script_path <- function() {
   if (file.exists(candidate)) candidate else NULL
 }
 
+recommended_process_locations <- function() {
+  home <- normalizePath(path.expand("~"), winslash = "/", mustWork = FALSE)
+  project_root <- dirname(workspace_root)
+  c(
+    file.path(home, "tools", "processv50", "PROCESS_R_v5", "process.R"),
+    file.path(home, "ResearchTools", "processv50", "PROCESS_R_v5", "process.R"),
+    file.path(project_root, "local-tools", "processv50", "PROCESS_R_v5", "process.R")
+  )
+}
+
 capture_report <- function(expr) {
   output <- capture.output(result <- eval.parent(substitute(expr)), type = "output")
   list(result = result, output = output)
@@ -1281,7 +1291,16 @@ if (is.null(process_script_raw) || !nzchar(trimws(process_script_raw))) {
   process_script_raw <- default_process_script_path()
 }
 if (is.null(process_script_raw) || !nzchar(trimws(process_script_raw))) {
-  tool_error(plugin_id, tool_name, "missing_process_script", "Provide processScriptPath or PROCESSV50_R_PATH to a local process.R", list(envVar = "PROCESSV50_R_PATH"))
+  tool_error(
+    plugin_id,
+    tool_name,
+    "missing_process_script",
+    "Provide processScriptPath or set PROCESSV50_R_PATH to a local process.R. Recommended: keep PROCESS outside the repo (for example ~/tools/processv50/PROCESS_R_v5/process.R).",
+    list(
+      envVar = "PROCESSV50_R_PATH",
+      suggestedPaths = unname(recommended_process_locations())
+    )
+  )
 }
 
 process_script_path <- resolve_existing_path(process_script_raw)

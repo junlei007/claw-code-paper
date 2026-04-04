@@ -47,6 +47,24 @@ If your project needs **latent variables** or latent mediation / moderation, pre
 
 ## Local example
 
+## Recommended local placement
+
+Best practice is to keep the real PROCESS installation **outside this repo** and point the wrapper to it with `PROCESSV50_R_PATH`.
+
+Recommended locations:
+
+- `~/tools/processv50/PROCESS_R_v5/process.R`
+- `~/ResearchTools/processv50/PROCESS_R_v5/process.R`
+- a repo-adjacent private tools directory such as `../local-tools/processv50/PROCESS_R_v5/process.R`
+
+Example shell setup:
+
+```bash
+export PROCESSV50_R_PATH=~/tools/processv50/PROCESS_R_v5/process.R
+```
+
+The repo-level `processv50/` path is ignored to reduce accidental commits, but it is still better to keep the actual PROCESS files outside the repository whenever possible.
+
 Using a private local PROCESS install:
 
 ```bash

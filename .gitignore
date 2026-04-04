@@ -6,6 +6,7 @@ archive/
 .port_sessions/
 .clawd-agents/
 claw-code-main/
+# local/private PROCESS install (keep outside the repo if possible)
 processv50/
 # Claude Code local artifacts
 .claude/settings.local.json
