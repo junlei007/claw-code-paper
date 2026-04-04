@@ -2877,6 +2877,31 @@ If the plugin is unavailable, say that `research-survey@bundled` must be enabled
     )
 }
 
+fn process_role_template(
+    x_hint: &str,
+    y_hint: &str,
+    m_hint: &str,
+    w_hint: &str,
+    z_hint: &str,
+) -> String {
+    format!(
+        "When role details are incomplete, ask using a compact template such as:\n\
+```text\n\
+x={x_hint}\n\
+y={y_hint}\n\
+m={m_hint}\n\
+w={w_hint}\n\
+z={z_hint}\n\
+covariates=\n\
+model=\n\
+boot=5000\n\
+conf=95\n\
+center=0\n\
+outputPath=.claw/artifacts/processv50-report.txt\n\
+```\n\n"
+    )
+}
+
 fn build_recipe_process_prompt(path: &str, request_spec: Option<&str>) -> String {
     let request_instruction = match request_spec.map(str::trim).filter(|value| !value.is_empty()) {
         Some(spec) => format!(
@@ -2884,12 +2909,20 @@ fn build_recipe_process_prompt(path: &str, request_spec: Option<&str>) -> String
         ),
         None => "If the user has not yet specified whether this is mediation, moderation, or another conditional process pattern, ask for the minimum missing detail before attempting the run.\n\n".to_string(),
     };
+    let role_template = process_role_template(
+        "<predictor>",
+        "<outcome>",
+        "<mediator-or-blank>",
+        "<moderator-or-blank>",
+        "<second-moderator-or-blank>",
+    );
     format!(
         "Run the questionnaire PROCESSv50 workflow for dataset `{path}`.\n\n\
 {request_instruction}Start from `survey_metadata` only if you still need schema or scored-variable context; otherwise prefer the PROCESSv50 external plugin path.\n\
 If `processv50_run` is available, use it with `datasetPath` set to `{path}` and with explicit role fields (`x`, `y`, and any needed `m`, `w`, `z`, `covariates`).\n\
 If the roles are already clear, attempt `processv50_run` directly before spending time on tool search, plugin source inspection, or fallback planning. Treat an installed external plugin tool as callable even if generic discovery/search tools lag behind.\n\
 Use a default PROCESS model only when the request clearly matches a common simple case: mediation → model `4`, moderation → model `1`. Otherwise ask for the exact model only when the structure is still ambiguous.\n\n\
+{role_template}\
 Goal:\n\
 - classify the request as mediation, moderation, or another conditional process variant before execution\n\
 - keep this on scored observed variables rather than inventing latent-variable structure\n\
@@ -2911,12 +2944,20 @@ fn build_recipe_mediation_prompt(path: &str, variable_roles: Option<&str>) -> St
         ),
         None => "If X/M/Y roles are still missing, ask for the minimum missing role assignment before attempting the run.\n\n".to_string(),
     };
+    let role_template = process_role_template(
+        "<predictor>",
+        "<outcome>",
+        "<mediator>",
+        "<optional-moderator-or-blank>",
+        "<optional-z-or-blank>",
+    );
     format!(
         "Run the questionnaire mediation workflow for dataset `{path}`.\n\n\
 {role_instruction}Start from `survey_metadata` only if you still need schema or scored-variable context; otherwise prefer the PROCESSv50 external plugin path.\n\
 If `processv50_run` is available, use it with `datasetPath` set to `{path}` and with explicit `x`, `m`, and `y` roles.\n\
 If the X/M/Y roles are already clear, attempt `processv50_run` directly before spending time on tool search, plugin source inspection, or fallback planning. Treat an installed external plugin tool as callable even if generic discovery/search tools lag behind.\n\
 When the request is a standard simple mediation and no better PROCESS model is specified, default to model `4`; otherwise ask for the exact model only when the requested structure is ambiguous.\n\n\
+{role_template}\
 Goal:\n\
 - keep this on scored observed variables rather than inventing latent-variable structure\n\
 - if the user actually needs latent mediation or latent constructs, recommend an SEM / structural-equation path (for example CFA/SEM with `research-sem@external`) instead of forcing PROCESSv50\n\
@@ -2937,12 +2978,20 @@ fn build_recipe_moderation_prompt(path: &str, variable_roles: Option<&str>) -> S
         ),
         None => "If X/W/Y roles are still missing, ask for the minimum missing role assignment before attempting the run.\n\n".to_string(),
     };
+    let role_template = process_role_template(
+        "<predictor>",
+        "<outcome>",
+        "<optional-m-or-blank>",
+        "<moderator>",
+        "<optional-z-or-blank>",
+    );
     format!(
         "Run the questionnaire moderation workflow for dataset `{path}`.\n\n\
 {role_instruction}Start from `survey_metadata` only if you still need schema or scored-variable context; otherwise prefer the PROCESSv50 external plugin path.\n\
 If `processv50_run` is available, use it with `datasetPath` set to `{path}` and with explicit `x`, `w`, and `y` roles.\n\
 If the X/W/Y roles are already clear, attempt `processv50_run` directly before spending time on tool search, plugin source inspection, or fallback planning. Treat an installed external plugin tool as callable even if generic discovery/search tools lag behind.\n\
 When the request is a standard simple moderation and no better PROCESS model is specified, default to model `1`; otherwise ask for the exact model only when the requested structure is ambiguous.\n\n\
+{role_template}\
 Goal:\n\
 - keep this on scored observed variables rather than inventing latent-variable structure\n\
 - if the user actually needs latent moderation or latent constructs, recommend an SEM / structural-equation path (for example CFA/SEM with `research-sem@external`) instead of forcing PROCESSv50\n\
@@ -8097,6 +8146,11 @@ mod tests {
         assert!(process.contains("model `4`, moderation → model `1`"));
         assert!(process.contains("latent variables"));
         assert!(process.contains("research-sem@external"));
+        assert!(process.contains("When role details are incomplete"));
+        assert!(process.contains("x=<predictor>"));
+        assert!(process.contains("m=<mediator-or-blank>"));
+        assert!(process.contains("w=<moderator-or-blank>"));
+        assert!(process.contains("outputPath=.claw/artifacts/processv50-report.txt"));
         assert!(process.contains("model 7: stress -> coping -> burnout with support as moderator"));
         assert!(process.contains("research-processv50@external"));
         assert!(mediation.contains("processv50_run"));
@@ -8105,6 +8159,8 @@ mod tests {
         assert!(mediation.contains("default to model `4`"));
         assert!(mediation.contains("latent mediation"));
         assert!(mediation.contains("research-sem@external"));
+        assert!(mediation.contains("m=<mediator>"));
+        assert!(mediation.contains("w=<optional-moderator-or-blank>"));
         assert!(mediation.contains("stress -> coping -> burnout"));
         assert!(mediation.contains("research-processv50@external"));
         assert!(moderation.contains("processv50_run"));
@@ -8113,6 +8169,8 @@ mod tests {
         assert!(moderation.contains("default to model `1`"));
         assert!(moderation.contains("latent moderation"));
         assert!(moderation.contains("research-sem@external"));
+        assert!(moderation.contains("m=<optional-m-or-blank>"));
+        assert!(moderation.contains("w=<moderator>"));
         assert!(moderation.contains("stress * support -> burnout"));
         assert!(moderation.contains("PROCESSV50_R_PATH"));
         assert!(report.contains("survey_report"));
