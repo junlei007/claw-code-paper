@@ -5762,15 +5762,42 @@ fn format_metric(value: f64) -> String {
     }
 }
 
+fn collect_process_effect_rows<'a>(
+    value: Option<&'a serde_json::Value>,
+) -> Vec<&'a serde_json::Map<String, serde_json::Value>> {
+    fn visit<'a>(
+        value: &'a serde_json::Value,
+        rows: &mut Vec<&'a serde_json::Map<String, serde_json::Value>>,
+    ) {
+        match value {
+            serde_json::Value::Array(items) => {
+                for item in items {
+                    visit(item, rows);
+                }
+            }
+            serde_json::Value::Object(map) => {
+                if map.contains_key("effect") {
+                    rows.push(map);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut rows = Vec::new();
+    if let Some(value) = value {
+        visit(value, &mut rows);
+    }
+    rows
+}
+
 fn format_process_effect_preview(
     effect_summary: Option<&serde_json::Map<String, serde_json::Value>>,
     key: &str,
     label: &str,
 ) -> Option<String> {
-    let rows = effect_summary
-        .and_then(|summary| summary.get(key))
-        .and_then(serde_json::Value::as_array)?;
-    let first = rows.first()?.as_object()?;
+    let rows = collect_process_effect_rows(effect_summary.and_then(|summary| summary.get(key)));
+    let first = rows.first()?;
     let effect = value_as_f64(first.get("effect"))?;
     let lower_ci = value_as_f64(first.get("lowerCI"));
     let upper_ci = value_as_f64(first.get("upperCI"));
@@ -5802,6 +5829,25 @@ fn format_process_effect_preview(
     }
     rendered.push_str(&suffix);
     Some(rendered)
+}
+
+fn process_effect_count(
+    effect_summary: Option<&serde_json::Map<String, serde_json::Value>>,
+    key: &str,
+) -> usize {
+    collect_process_effect_rows(effect_summary.and_then(|summary| summary.get(key))).len()
+}
+
+fn collect_numeric_values(value: Option<&serde_json::Value>, limit: usize) -> Vec<f64> {
+    match value {
+        Some(serde_json::Value::Array(items)) => items
+            .iter()
+            .filter_map(|item| value_as_f64(Some(item)))
+            .take(limit)
+            .collect::<Vec<_>>(),
+        Some(other) => value_as_f64(Some(other)).into_iter().collect::<Vec<_>>(),
+        None => Vec::new(),
+    }
 }
 
 fn format_survey_metadata_result(icon: &str, parsed: &serde_json::Value) -> String {
@@ -6233,6 +6279,7 @@ fn format_processv50_run_result(icon: &str, parsed: &serde_json::Value) -> Strin
     let report_parse = parsed
         .get("reportParse")
         .and_then(serde_json::Value::as_object);
+    let plots = parsed.get("plots").and_then(serde_json::Value::as_object);
     let effect_summary = report_parse
         .and_then(|value| value.get("effectSummary"))
         .and_then(serde_json::Value::as_object);
@@ -6352,6 +6399,20 @@ fn format_processv50_run_result(icon: &str, parsed: &serde_json::Value) -> Strin
         lines.push(format!("\x1b[2mReport JSON\x1b[0m {path}"));
     }
 
+    let decomposition_plot =
+        artifact_display_path(artifacts.and_then(|value| value.get("moderationDecompositionPlot")));
+    let jn_plot = artifact_display_path(artifacts.and_then(|value| value.get("johnsonNeymanPlot")));
+    if decomposition_plot.is_some() || jn_plot.is_some() {
+        let mut plot_parts = Vec::new();
+        if let Some(path) = decomposition_plot {
+            plot_parts.push(format!("decomposition {path}"));
+        }
+        if let Some(path) = jn_plot {
+            plot_parts.push(format!("JN {path}"));
+        }
+        lines.push(format!("\x1b[2mPlots\x1b[0m {}", plot_parts.join(" · ")));
+    }
+
     let outcomes = collect_string_values(report_parse.and_then(|value| value.get("outcomes")), 4);
     let detected_sections = collect_string_values(
         report_parse.and_then(|value| value.get("detectedSections")),
@@ -6373,18 +6434,9 @@ fn format_processv50_run_result(icon: &str, parsed: &serde_json::Value) -> Strin
         ));
     }
 
-    let direct_count = effect_summary
-        .and_then(|value| value.get("direct"))
-        .and_then(serde_json::Value::as_array)
-        .map_or(0, Vec::len);
-    let indirect_count = effect_summary
-        .and_then(|value| value.get("indirect"))
-        .and_then(serde_json::Value::as_array)
-        .map_or(0, Vec::len);
-    let moderated_index_count = effect_summary
-        .and_then(|value| value.get("moderatedMediationIndex"))
-        .and_then(serde_json::Value::as_array)
-        .map_or(0, Vec::len);
+    let direct_count = process_effect_count(effect_summary, "direct");
+    let indirect_count = process_effect_count(effect_summary, "indirect");
+    let moderated_index_count = process_effect_count(effect_summary, "moderatedMediationIndex");
     if direct_count > 0 || indirect_count > 0 || moderated_index_count > 0 {
         lines.push(format!(
             "\x1b[2mEffects\x1b[0m direct {direct_count} · indirect {indirect_count} · moderated-index {moderated_index_count}"
@@ -6404,6 +6456,46 @@ fn format_processv50_run_result(icon: &str, parsed: &serde_json::Value) -> Strin
             "\x1b[2mKey effects\x1b[0m {}",
             key_effects.join(" · ")
         ));
+    }
+
+    let conditional_effects = [
+        format_process_effect_preview(effect_summary, "conditionalDirect", "conditional-direct"),
+        format_process_effect_preview(
+            effect_summary,
+            "conditionalIndirect",
+            "conditional-indirect",
+        ),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    if !conditional_effects.is_empty() {
+        lines.push(format!(
+            "\x1b[2mConditional effects\x1b[0m {}",
+            conditional_effects.join(" · ")
+        ));
+    }
+
+    if let Some(jn_plot) = plots
+        .and_then(|value| value.get("johnsonNeyman"))
+        .and_then(serde_json::Value::as_object)
+    {
+        let pattern = jn_plot
+            .get("significancePattern")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("not-reported");
+        let bounds = collect_numeric_values(jn_plot.get("bounds"), 3)
+            .into_iter()
+            .map(format_metric)
+            .collect::<Vec<_>>();
+        if bounds.is_empty() {
+            lines.push(format!("\x1b[2mJN summary\x1b[0m {pattern}"));
+        } else {
+            lines.push(format!(
+                "\x1b[2mJN summary\x1b[0m {pattern} · bounds {}",
+                bounds.join(", ")
+            ));
+        }
     }
 
     let warnings = collect_string_values(parsed.get("warnings"), 3);
@@ -8321,11 +8413,17 @@ mod tests {
                 },
                 "reportJson": {
                     "workspaceRelativePath": ".claw/artifacts/processv50-report.json"
+                },
+                "moderationDecompositionPlot": {
+                    "workspaceRelativePath": ".claw/artifacts/processv50-report-moderation-decomposition.png"
+                },
+                "johnsonNeymanPlot": {
+                    "workspaceRelativePath": ".claw/artifacts/processv50-report-johnson-neyman.png"
                 }
             },
             "reportParse": {
                 "outcomes": ["burnout"],
-                "detectedSections": ["modelSummary", "directEffect", "indirectEffects"],
+                "detectedSections": ["modelSummary", "directEffect", "indirectEffects", "conditionalDirectEffects", "conditionalIndirectEffects"],
                 "effectSummary": {
                     "direct": [
                         {
@@ -8345,6 +8443,36 @@ mod tests {
                             "upperCI": 0.22
                         }
                     ],
+                    "conditionalDirect": [
+                        {
+                            "label": "support=2.500",
+                            "effect": 0.21,
+                            "lowerCI": 0.05,
+                            "upperCI": 0.37
+                        },
+                        {
+                            "label": "support=4.000",
+                            "effect": 0.41,
+                            "lowerCI": 0.17,
+                            "upperCI": 0.65
+                        }
+                    ],
+                    "conditionalIndirect": [
+                        [
+                            {
+                                "label": "support=2.500",
+                                "effect": 0.08,
+                                "lowerCI": 0.01,
+                                "upperCI": 0.17
+                            },
+                            {
+                                "label": "support=4.000",
+                                "effect": 0.18,
+                                "lowerCI": 0.07,
+                                "upperCI": 0.30
+                            }
+                        ]
+                    ],
                     "moderatedMediationIndex": [
                         {
                             "label": "support",
@@ -8353,6 +8481,12 @@ mod tests {
                             "upperCI": 0.16
                         }
                     ]
+                }
+            },
+            "plots": {
+                "johnsonNeyman": {
+                    "significancePattern": "crosses-johnson-neyman-threshold",
+                    "bounds": [2.731, 4.418]
                 }
             },
             "warnings": [
@@ -8372,15 +8506,25 @@ mod tests {
         assert!(rendered.contains("processv50/PROCESS_R_v5/process.R"));
         assert!(rendered.contains(".claw/artifacts/processv50-report.txt"));
         assert!(rendered.contains(".claw/artifacts/processv50-report.json"));
+        assert!(rendered.contains(".claw/artifacts/processv50-report-moderation-decomposition.png"));
+        assert!(rendered.contains(".claw/artifacts/processv50-report-johnson-neyman.png"));
         assert!(rendered.contains("Structured"));
         assert!(rendered.contains("outcomes burnout"));
-        assert!(rendered.contains("modelSummary, directEffect, indirectEffects"));
+        assert!(rendered
+            .contains("modelSummary, directEffect, indirectEffects, conditionalDirectEffects"));
         assert!(rendered.contains("Effects"));
         assert!(rendered.contains("direct 1 · indirect 1 · moderated-index 1"));
         assert!(rendered.contains("Key effects"));
         assert!(rendered.contains("direct 0.300 [0.100, 0.500]"));
         assert!(rendered.contains("indirect(coping) 0.120 [0.030, 0.220]"));
         assert!(rendered.contains("moderated-index(support) 0.080 [0.010, 0.160]"));
+        assert!(rendered.contains("Conditional effects"));
+        assert!(rendered.contains("conditional-direct(support=2.500) 0.210 [0.050, 0.370] +1"));
+        assert!(rendered.contains("conditional-indirect(support=2.500) 0.080 [0.010, 0.170] +1"));
+        assert!(rendered.contains("Plots"));
+        assert!(rendered.contains("JN summary"));
+        assert!(rendered.contains("crosses-johnson-neyman-threshold"));
+        assert!(rendered.contains("bounds 2.731, 4.418"));
         assert!(rendered.contains("No moderator variable was provided"));
     }
 

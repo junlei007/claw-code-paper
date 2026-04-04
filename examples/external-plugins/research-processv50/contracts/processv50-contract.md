@@ -31,6 +31,7 @@ The wrapper:
 - calls `process(...)`
 - captures console output into a text artifact
 - writes a machine-readable JSON sidecar artifact next to the text report when possible
+- for simple moderation runs (currently model `1` with one moderator), also derives a moderation decomposition plot and a Johnson-Neyman plot
 - returns structured metadata describing the run
 
 ## Current output shape
@@ -41,9 +42,12 @@ The wrapper:
 - `processScript`
 - `artifacts.report`
 - `artifacts.reportJson`
+- `artifacts.moderationDecompositionPlot` (when plot generation succeeds)
+- `artifacts.johnsonNeymanPlot` (when plot generation succeeds)
 - `reportParse`
   - `reportParse.detectedSections`
   - `reportParse.effectSummary`
+- `plots.johnsonNeyman`
 - `warnings`
 
 ## Limits
@@ -51,4 +55,5 @@ The wrapper:
 - current prototype focuses on observed-variable PROCESS-style workflows
 - latent-variable mediation / moderation requests should be redirected to an SEM / structural-equation workflow instead of this plugin
 - report parsing is intentionally shallow; it adds first-pass section extraction plus a conservative `effectSummary` layer while still preserving the native text report rather than inventing publication-grade structured coefficients
+- moderation decomposition / JN plotting is currently a prototype for simple numeric moderation (PROCESS model `1`) and should not yet be treated as a general renderer for every PROCESS model family
 - stability depends on the local PROCESS release and the team's private execution environment

@@ -103,6 +103,11 @@ derive_json_sidecar_path <- function(path) {
   paste0(path, ".json")
 }
 
+derive_suffixed_artifact_path <- function(path, suffix, extension) {
+  base <- sub("(\\.[^./]+)$", "", path, perl = TRUE)
+  paste0(base, suffix, extension)
+}
+
 workspace_relative_path <- function(path) {
   normalized <- normalizePath(path, winslash = "/", mustWork = FALSE)
   prefix <- paste0(workspace_root, "/")
@@ -384,6 +389,313 @@ parse_report_text <- function(report_text) {
   )
 }
 
+artifact_entry <- function(path, kind) {
+  list(
+    path = path,
+    workspaceRelativePath = workspace_relative_path(path),
+    kind = kind
+  )
+}
+
+normalize_formula_name <- function(name) {
+  paste0("`", gsub("`", "\\\\`", as.character(name), fixed = TRUE), "`")
+}
+
+build_moderation_formula <- function(y_name, x_name, w_name, covariates) {
+  x_term <- normalize_formula_name(x_name)
+  w_term <- normalize_formula_name(w_name)
+  terms <- c(x_term, w_term, sprintf("%s:%s", x_term, w_term))
+  if (length(covariates)) {
+    terms <- c(terms, vapply(covariates, normalize_formula_name, character(1)))
+  }
+  stats::as.formula(sprintf("%s ~ %s", normalize_formula_name(y_name), paste(terms, collapse = " + ")))
+}
+
+match_main_effect_index <- function(coefficient_names, variable_name) {
+  normalized_target <- normalize_column_key(variable_name)
+  normalized_names <- vapply(coefficient_names, normalize_column_key, character(1))
+  match(normalized_target, normalized_names)
+}
+
+match_interaction_effect_index <- function(coefficient_names, x_name, w_name) {
+  target <- unname(sort(c(normalize_column_key(x_name), normalize_column_key(w_name))))
+  for (index in seq_along(coefficient_names)) {
+    pieces <- strsplit(gsub("`", "", coefficient_names[[index]], fixed = TRUE), ":", fixed = TRUE)[[1]]
+    if (length(pieces) != 2) {
+      next
+    }
+    if (identical(unname(sort(vapply(pieces, normalize_column_key, character(1)))), target)) {
+      return(index)
+    }
+  }
+  NA_integer_
+}
+
+compute_jn_bounds <- function(b_x, b_int, var_x, var_int, cov_x_int, t_critical) {
+  a <- (b_int ^ 2) - ((t_critical ^ 2) * var_int)
+  b <- (2 * b_x * b_int) - ((2 * (t_critical ^ 2)) * cov_x_int)
+  c_term <- (b_x ^ 2) - ((t_critical ^ 2) * var_x)
+
+  if (abs(a) < .Machine$double.eps) {
+    if (abs(b) < .Machine$double.eps) {
+      return(numeric())
+    }
+    return(-c_term / b)
+  }
+
+  discriminant <- (b ^ 2) - (4 * a * c_term)
+  if (!is.finite(discriminant) || discriminant < 0) {
+    return(numeric())
+  }
+
+  roots <- c(
+    (-b - sqrt(discriminant)) / (2 * a),
+    (-b + sqrt(discriminant)) / (2 * a)
+  )
+  sort(unique(roots[is.finite(roots)]))
+}
+
+generate_moderation_plot_bundle <- function(dataset, x_name, y_name, w_name, covariates, conf_level, output_path) {
+  required_columns <- unique(c(x_name, y_name, w_name, covariates))
+  missing_columns <- required_columns[!required_columns %in% names(dataset)]
+  if (length(missing_columns)) {
+    return(list(
+      artifacts = list(),
+      plots = NULL,
+      warnings = sprintf(
+        "Skipped moderation/JN plots because required columns were missing: %s",
+        paste(missing_columns, collapse = ", ")
+      )
+    ))
+  }
+
+  non_numeric <- required_columns[!vapply(required_columns, function(name) is.numeric(dataset[[name]]), logical(1))]
+  if (length(non_numeric)) {
+    return(list(
+      artifacts = list(),
+      plots = NULL,
+      warnings = sprintf(
+        "Skipped moderation/JN plots because the current prototype requires numeric columns: %s",
+        paste(non_numeric, collapse = ", ")
+      )
+    ))
+  }
+
+  analysis_data <- dataset[, required_columns, drop = FALSE]
+  analysis_data <- analysis_data[stats::complete.cases(analysis_data), , drop = FALSE]
+  if (nrow(analysis_data) < 5) {
+    return(list(
+      artifacts = list(),
+      plots = NULL,
+      warnings = "Skipped moderation/JN plots because fewer than 5 complete cases were available for the moderation model."
+    ))
+  }
+
+  moderator_sd <- stats::sd(analysis_data[[w_name]], na.rm = TRUE)
+  if (!is.finite(moderator_sd) || moderator_sd <= 0) {
+    return(list(
+      artifacts = list(),
+      plots = NULL,
+      warnings = sprintf("Skipped moderation/JN plots because moderator `%s` had zero or undefined variance.", w_name)
+    ))
+  }
+
+  fit <- tryCatch(
+    stats::lm(build_moderation_formula(y_name, x_name, w_name, covariates), data = analysis_data),
+    error = function(err) err
+  )
+  if (inherits(fit, "error")) {
+    return(list(
+      artifacts = list(),
+      plots = NULL,
+      warnings = sprintf("Skipped moderation/JN plots because the moderation model failed to fit: %s", fit$message)
+    ))
+  }
+
+  coefficient_names <- names(stats::coef(fit))
+  x_index <- match_main_effect_index(coefficient_names, x_name)
+  interaction_index <- match_interaction_effect_index(coefficient_names, x_name, w_name)
+  if (is.na(x_index) || is.na(interaction_index)) {
+    return(list(
+      artifacts = list(),
+      plots = NULL,
+      warnings = "Skipped moderation/JN plots because the fitted model did not expose the expected x and x:w coefficients."
+    ))
+  }
+
+  residual_df <- stats::df.residual(fit)
+  if (!is.finite(residual_df) || residual_df <= 0) {
+    return(list(
+      artifacts = list(),
+      plots = NULL,
+      warnings = "Skipped moderation/JN plots because the fitted moderation model had no residual degrees of freedom."
+    ))
+  }
+
+  vcov_matrix <- stats::vcov(fit)
+  b_x <- stats::coef(fit)[[x_index]]
+  b_int <- stats::coef(fit)[[interaction_index]]
+  var_x <- vcov_matrix[x_index, x_index]
+  var_int <- vcov_matrix[interaction_index, interaction_index]
+  cov_x_int <- vcov_matrix[x_index, interaction_index]
+
+  if (!all(is.finite(c(b_x, b_int, var_x, var_int, cov_x_int)))) {
+    return(list(
+      artifacts = list(),
+      plots = NULL,
+      warnings = "Skipped moderation/JN plots because the fitted moderation model produced non-finite coefficient statistics."
+    ))
+  }
+
+  conf_level <- if (is.finite(conf_level)) conf_level else 95
+  alpha <- (100 - conf_level) / 100
+  t_critical <- stats::qt(1 - (alpha / 2), residual_df)
+
+  moderator_mean <- mean(analysis_data[[w_name]], na.rm = TRUE)
+  moderator_levels <- data.frame(
+    level = c("Low (-1 SD)", "Mean", "High (+1 SD)"),
+    moderatorValue = c(moderator_mean - moderator_sd, moderator_mean, moderator_mean + moderator_sd),
+    stringsAsFactors = FALSE
+  )
+  x_grid <- seq(min(analysis_data[[x_name]], na.rm = TRUE), max(analysis_data[[x_name]], na.rm = TRUE), length.out = 100)
+
+  prediction_grid <- do.call(rbind, lapply(seq_len(nrow(moderator_levels)), function(index) {
+    row <- moderator_levels[index, , drop = FALSE]
+    block <- data.frame(
+      x_grid = x_grid,
+      moderator_grid = rep(row$moderatorValue, length(x_grid)),
+      level = rep(row$level, length(x_grid)),
+      stringsAsFactors = FALSE,
+      check.names = FALSE
+    )
+    names(block)[names(block) == "x_grid"] <- x_name
+    names(block)[names(block) == "moderator_grid"] <- w_name
+    for (covariate in covariates) {
+      block[[covariate]] <- rep(mean(analysis_data[[covariate]], na.rm = TRUE), length(x_grid))
+    }
+    block$predicted <- as.numeric(stats::predict(fit, newdata = block))
+    block
+  }))
+
+  jn_grid <- data.frame(moderatorValue = seq(
+    min(analysis_data[[w_name]], na.rm = TRUE),
+    max(analysis_data[[w_name]], na.rm = TRUE),
+    length.out = 200
+  ))
+  jn_grid$effect <- b_x + (b_int * jn_grid$moderatorValue)
+  jn_grid$standardError <- sqrt(
+    pmax(
+      0,
+      var_x + ((jn_grid$moderatorValue ^ 2) * var_int) + (2 * jn_grid$moderatorValue * cov_x_int)
+    )
+  )
+  jn_grid$lowerCI <- jn_grid$effect - (t_critical * jn_grid$standardError)
+  jn_grid$upperCI <- jn_grid$effect + (t_critical * jn_grid$standardError)
+  jn_grid$significant <- (jn_grid$lowerCI > 0) | (jn_grid$upperCI < 0)
+
+  raw_bounds <- compute_jn_bounds(b_x, b_int, var_x, var_int, cov_x_int, t_critical)
+  moderator_range <- range(jn_grid$moderatorValue, finite = TRUE)
+  jn_bounds <- raw_bounds[raw_bounds >= moderator_range[[1]] & raw_bounds <= moderator_range[[2]]]
+
+  decomposition_path <- derive_suffixed_artifact_path(output_path, "-moderation-decomposition", ".png")
+  jn_path <- derive_suffixed_artifact_path(output_path, "-johnson-neyman", ".png")
+  palette <- c("#3B82F6", "#8B5CF6", "#F59E0B")
+
+  grDevices::png(decomposition_path, width = 1400, height = 1000, res = 160)
+  graphics::par(mar = c(5, 5, 4, 2) + 0.1)
+  plot(
+    range(x_grid),
+    range(prediction_grid$predicted, finite = TRUE),
+    type = "n",
+    xlab = x_name,
+    ylab = sprintf("Predicted %s", y_name),
+    main = sprintf("Moderation decomposition: %s × %s", x_name, w_name)
+  )
+  for (index in seq_len(nrow(moderator_levels))) {
+    level_name <- moderator_levels$level[[index]]
+    block <- prediction_grid[prediction_grid$level == level_name, , drop = FALSE]
+    graphics::lines(block[[x_name]], block$predicted, col = palette[[index]], lwd = 3)
+  }
+  graphics::legend(
+    "topleft",
+    legend = sprintf("%s = %s", moderator_levels$level, format(round(moderator_levels$moderatorValue, 3), nsmall = 3)),
+    col = palette,
+    lwd = 3,
+    bty = "n",
+    cex = 0.9
+  )
+  grDevices::dev.off()
+
+  grDevices::png(jn_path, width = 1400, height = 1000, res = 160)
+  graphics::par(mar = c(5, 5, 4, 2) + 0.1)
+  plot(
+    jn_grid$moderatorValue,
+    jn_grid$effect,
+    type = "n",
+    ylim = range(c(jn_grid$lowerCI, jn_grid$upperCI, 0), finite = TRUE),
+    xlab = w_name,
+    ylab = sprintf("Conditional effect of %s on %s", x_name, y_name),
+    main = sprintf("Johnson-Neyman plot: %s moderated by %s", x_name, w_name)
+  )
+  graphics::polygon(
+    c(jn_grid$moderatorValue, rev(jn_grid$moderatorValue)),
+    c(jn_grid$lowerCI, rev(jn_grid$upperCI)),
+    border = NA,
+    col = grDevices::adjustcolor("#3B82F6", alpha.f = 0.2)
+  )
+  graphics::lines(jn_grid$moderatorValue, jn_grid$effect, col = "#1D4ED8", lwd = 3)
+  graphics::abline(h = 0, col = "#6B7280", lty = 2)
+  if (length(jn_bounds)) {
+    for (bound in jn_bounds) {
+      graphics::abline(v = bound, col = "#DC2626", lty = 3, lwd = 2)
+    }
+  }
+  grDevices::dev.off()
+
+  significance_pattern <- if (all(jn_grid$significant)) {
+    "always-significant"
+  } else if (!any(jn_grid$significant)) {
+    "never-significant"
+  } else {
+    "crosses-johnson-neyman-threshold"
+  }
+
+  list(
+    artifacts = list(
+      moderationDecompositionPlot = artifact_entry(decomposition_path, "image/png"),
+      johnsonNeymanPlot = artifact_entry(jn_path, "image/png")
+    ),
+    plots = list(
+      moderationDecomposition = list(
+        status = "created",
+        method = "lm-simple-slopes",
+        x = x_name,
+        y = y_name,
+        moderator = w_name,
+        moderatorLevels = unname(lapply(seq_len(nrow(moderator_levels)), function(index) {
+          list(
+            label = moderator_levels$level[[index]],
+            value = moderator_levels$moderatorValue[[index]]
+          )
+        })),
+        artifact = artifact_entry(decomposition_path, "image/png")
+      ),
+      johnsonNeyman = list(
+        status = "created",
+        method = "lm-conditional-slope",
+        x = x_name,
+        y = y_name,
+        moderator = w_name,
+        confidence = conf_level,
+        significancePattern = significance_pattern,
+        bounds = unname(as.list(jn_bounds)),
+        artifact = artifact_entry(jn_path, "image/png")
+      )
+    ),
+    warnings = character()
+  )
+}
+
 build_response_payload <- function(
   plugin_id,
   tool_name,
@@ -404,24 +716,18 @@ build_response_payload <- function(
   output_path,
   report_json_path,
   report_parse,
+  plot_artifacts,
+  plot_summaries,
   warnings
 ) {
-  artifacts <- list(
-    report = list(
-      path = output_path,
-      workspaceRelativePath = workspace_relative_path(output_path),
-      kind = "text"
-    )
-  )
+  artifacts <- c(list(
+    report = artifact_entry(output_path, "text")
+  ), plot_artifacts)
   if (!is.null(report_json_path)) {
-    artifacts$reportJson <- list(
-      path = report_json_path,
-      workspaceRelativePath = workspace_relative_path(report_json_path),
-      kind = "json"
-    )
+    artifacts$reportJson <- artifact_entry(report_json_path, "json")
   }
 
-  list(
+  payload <- list(
     plugin = plugin_id,
     tool = tool_name,
     status = "ok",
@@ -452,6 +758,12 @@ build_response_payload <- function(
     reportParse = report_parse,
     warnings = unname(warnings)
   )
+
+  if (!is.null(plot_summaries) && length(plot_summaries)) {
+    payload$plots <- plot_summaries
+  }
+
+  payload
 }
 
 dataset_path_input <- normalize_scalar(field("datasetPath"))
@@ -558,6 +870,31 @@ if (!length(w_value) && model %in% c(1, 7, 8, 14, 58, 59)) {
   warnings <- c(warnings, "No moderator variable was provided even though the selected model is often used for moderation-style workflows.")
 }
 
+plot_artifacts <- list()
+plot_summaries <- NULL
+if (model == 1 && length(w_value) == 1) {
+  plot_bundle <- generate_moderation_plot_bundle(
+    dataset = dataset,
+    x_name = x_value,
+    y_name = y_value,
+    w_name = w_value[[1]],
+    covariates = cov_value,
+    conf_level = conf_value,
+    output_path = output_path
+  )
+  plot_artifacts <- plot_bundle$artifacts
+  plot_summaries <- plot_bundle$plots
+  warnings <- c(warnings, plot_bundle$warnings)
+} else if (length(w_value) == 1 && model != 1) {
+  warnings <- c(
+    warnings,
+    sprintf(
+      "Moderation/JN plot generation currently targets simple moderation (PROCESS model 1); skipped plot rendering for model %s.",
+      model
+    )
+  )
+}
+
 response_payload <- build_response_payload(
   plugin_id = plugin_id,
   tool_name = tool_name,
@@ -578,6 +915,8 @@ response_payload <- build_response_payload(
   output_path = output_path,
   report_json_path = report_json_path,
   report_parse = report_parse,
+  plot_artifacts = plot_artifacts,
+  plot_summaries = plot_summaries,
   warnings = warnings
 )
 
@@ -614,6 +953,8 @@ if (!is.null(json_sidecar_error)) {
     output_path = output_path,
     report_json_path = NULL,
     report_parse = report_parse,
+    plot_artifacts = plot_artifacts,
+    plot_summaries = plot_summaries,
     warnings = warnings
   )
 }
