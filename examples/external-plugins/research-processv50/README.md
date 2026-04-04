@@ -90,7 +90,7 @@ env CLAW_TOOL_NAME=processv50_run \
 ## Current limitations
 
 - CSV-style datasets only in this prototype
-- preserves the PROCESS text report instead of extracting a publication-grade structured summary
+- preserves the PROCESS text report and only adds shallow structured section extraction in JSON output
 - depends on a locally provided `process.R` script path
 - does not yet standardize model-number presets, coefficient parsing, or reporting tables
 - should remain external / private until the execution and redistribution boundaries are fully settled

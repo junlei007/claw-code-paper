@@ -127,6 +127,177 @@ capture_report <- function(expr) {
   list(result = result, output = output)
 }
 
+parse_scalar_token <- function(value) {
+  text <- trimws(as.character(value))
+  if (!nzchar(text) || text %in% c("xxxxx", "XXXXX")) {
+    return(NULL)
+  }
+  if (grepl("^-?[0-9]+$", text)) {
+    return(as.integer(text))
+  }
+  if (grepl("^-?([0-9]+\\.[0-9]*|\\.[0-9]+)$", text)) {
+    return(as.numeric(text))
+  }
+  text
+}
+
+parse_key_value_fields <- function(lines) {
+  fields <- list()
+  pattern <- "([A-Za-z][A-Za-z0-9]*)=([^[:space:]]+)"
+  for (line in lines) {
+    tokens <- regmatches(line, gregexpr(pattern, line, perl = TRUE))[[1]]
+    if (!length(tokens)) {
+      next
+    }
+    for (token in tokens) {
+      parts <- strsplit(token, "=", fixed = TRUE)[[1]]
+      if (length(parts) != 2) {
+        next
+      }
+      parsed <- parse_scalar_token(parts[[2]])
+      if (!is.null(parsed)) {
+        fields[[parts[[1]]]] <- parsed
+      }
+    }
+  }
+  fields
+}
+
+extract_outcomes <- function(lines) {
+  outcomes <- character()
+  for (index in seq_along(lines)) {
+    if (trimws(lines[[index]]) != "Outcome Variable:") {
+      next
+    }
+    if (index >= length(lines)) {
+      next
+    }
+    trailing <- lines[(index + 1):length(lines)]
+    trailing <- trailing[nzchar(trimws(trailing))]
+    if (length(trailing)) {
+      outcomes <- c(outcomes, trimws(trailing[[1]]))
+    }
+  }
+  unname(unique(outcomes))
+}
+
+split_table_columns <- function(line) {
+  trimmed <- trimws(line)
+  if (!nzchar(trimmed)) {
+    return(character())
+  }
+  unlist(strsplit(trimmed, "\\s{2,}", perl = TRUE), use.names = FALSE)
+}
+
+parse_table_block <- function(lines) {
+  lines <- lines[nzchar(trimws(lines))]
+  if (!length(lines)) {
+    return(NULL)
+  }
+  columns <- split_table_columns(lines[[1]])
+  if (!length(columns)) {
+    return(list(rawLines = unname(lines)))
+  }
+  if (length(lines) == 1) {
+    return(list(rawLines = unname(lines)))
+  }
+
+  row_tokens <- lapply(lines[-1], split_table_columns)
+  row_tokens <- row_tokens[vapply(row_tokens, length, integer(1)) > 0]
+  if (!length(row_tokens)) {
+    return(list(columns = unname(columns), rows = list()))
+  }
+
+  build_row <- function(tokens, with_row_label) {
+    values <- if (with_row_label) tokens[-1] else tokens
+    row <- lapply(values, parse_scalar_token)
+    names(row) <- columns
+    if (with_row_label) {
+      c(list(.row = trimws(tokens[[1]])), row)
+    } else {
+      row
+    }
+  }
+
+  token_lengths <- vapply(row_tokens, length, integer(1))
+  if (all(token_lengths == length(columns))) {
+    return(list(
+      columns = unname(columns),
+      rows = unname(lapply(row_tokens, build_row, with_row_label = FALSE))
+    ))
+  }
+  if (all(token_lengths == (length(columns) + 1))) {
+    return(list(
+      columns = c(".row", unname(columns)),
+      rows = unname(lapply(row_tokens, build_row, with_row_label = TRUE))
+    ))
+  }
+
+  list(rawLines = unname(lines))
+}
+
+extract_section_block <- function(lines, start_index, headings) {
+  captured <- character()
+  if (start_index >= length(lines)) {
+    return(captured)
+  }
+  for (index in (start_index + 1):length(lines)) {
+    trimmed <- trimws(lines[[index]])
+    if (!nzchar(trimmed)) {
+      if (length(captured)) {
+        break
+      }
+      next
+    }
+    if (trimmed %in% headings || trimmed == "Outcome Variable:" || grepl("^[-*]{3,}$", trimmed)) {
+      break
+    }
+    captured <- c(captured, lines[[index]])
+  }
+  captured
+}
+
+parse_report_text <- function(report_text) {
+  lines <- unlist(strsplit(report_text, "\n", fixed = TRUE), use.names = FALSE)
+  section_titles <- c(
+    modelSummary = "Model Summary:",
+    directEffect = "Direct effect of X on Y:",
+    conditionalDirectEffects = "Conditional direct effect(s) of X on Y:",
+    indirectEffects = "Indirect effect(s) of X on Y:",
+    conditionalIndirectEffects = "Conditional indirect effects of X on Y:",
+    conditionalAndUnconditionalIndirectEffects = "Conditional and unconditional indirect effects of X on Y:",
+    moderatedMediationIndex = "Index of moderated mediation:",
+    partialModeratedMediationIndices = "Indices of partial moderated mediation:",
+    moderatedModeratedMediationIndices = "Indices of moderated moderated mediation:",
+    conditionalModeratedMediationIndices = "Indices of conditional moderated mediation by W:"
+  )
+
+  sections <- list()
+  for (name in names(section_titles)) {
+    matches <- which(trimws(lines) == section_titles[[name]])
+    if (!length(matches)) {
+      next
+    }
+    parsed_blocks <- lapply(matches, function(index) {
+      parse_table_block(extract_section_block(lines, index, unname(section_titles)))
+    })
+    parsed_blocks <- Filter(Negate(is.null), parsed_blocks)
+    if (!length(parsed_blocks)) {
+      next
+    }
+    sections[[name]] <- if (length(parsed_blocks) == 1) parsed_blocks[[1]] else unname(parsed_blocks)
+  }
+
+  list(
+    parserVersion = "0.1.0",
+    rawLineCount = length(lines),
+    outcomes = extract_outcomes(lines),
+    keyValueFields = parse_key_value_fields(lines),
+    detectedSections = unname(names(sections)),
+    sections = sections
+  )
+}
+
 dataset_path_input <- normalize_scalar(field("datasetPath"))
 if (is.null(dataset_path_input) || !nzchar(trimws(dataset_path_input))) {
   tool_error(plugin_id, tool_name, "missing_dataset_path", "datasetPath is required for processv50_run")
@@ -209,6 +380,7 @@ report_text <- paste(call_capture$output, collapse = "\n")
 if (!nzchar(trimws(report_text))) {
   report_text <- "PROCESSv50 run completed without captured console output."
 }
+report_parse <- parse_report_text(report_text)
 
 output_path_raw <- normalize_scalar(field("outputPath"))
 if (is.null(output_path_raw) || !nzchar(trimws(output_path_raw))) {
@@ -263,5 +435,6 @@ emit_json(list(
       kind = "text"
     )
   ),
+  reportParse = report_parse,
   warnings = unname(warnings)
 ))

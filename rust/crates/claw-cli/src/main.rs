@@ -6188,6 +6188,9 @@ fn format_processv50_run_result(icon: &str, parsed: &serde_json::Value) -> Strin
     let artifacts = parsed
         .get("artifacts")
         .and_then(serde_json::Value::as_object);
+    let report_parse = parsed
+        .get("reportParse")
+        .and_then(serde_json::Value::as_object);
 
     let rows = dataset
         .and_then(|value| value.get("rows"))
@@ -6290,6 +6293,27 @@ fn format_processv50_run_result(icon: &str, parsed: &serde_json::Value) -> Strin
         .and_then(serde_json::Value::as_str)
     {
         lines.push(format!("\x1b[2mReport\x1b[0m {path}"));
+    }
+
+    let outcomes = collect_string_values(report_parse.and_then(|value| value.get("outcomes")), 4);
+    let detected_sections = collect_string_values(
+        report_parse.and_then(|value| value.get("detectedSections")),
+        4,
+    );
+    if !outcomes.is_empty() || !detected_sections.is_empty() {
+        let outcome_summary = if outcomes.is_empty() {
+            "—".to_string()
+        } else {
+            outcomes.join(", ")
+        };
+        let section_summary = if detected_sections.is_empty() {
+            "none".to_string()
+        } else {
+            detected_sections.join(", ")
+        };
+        lines.push(format!(
+            "\x1b[2mStructured\x1b[0m outcomes {outcome_summary} · sections {section_summary}"
+        ));
     }
 
     let warnings = collect_string_values(parsed.get("warnings"), 3);
@@ -8206,6 +8230,10 @@ mod tests {
                     "workspaceRelativePath": ".claw/artifacts/processv50-report.txt"
                 }
             },
+            "reportParse": {
+                "outcomes": ["burnout"],
+                "detectedSections": ["modelSummary", "directEffect", "indirectEffects"]
+            },
             "warnings": [
                 "No moderator variable was provided even though the selected model is often used for moderation-style workflows."
             ]
@@ -8222,6 +8250,9 @@ mod tests {
         assert!(rendered.contains("age, tenure"));
         assert!(rendered.contains("processv50/PROCESS_R_v5/process.R"));
         assert!(rendered.contains(".claw/artifacts/processv50-report.txt"));
+        assert!(rendered.contains("Structured"));
+        assert!(rendered.contains("outcomes burnout"));
+        assert!(rendered.contains("modelSummary, directEffect, indirectEffects"));
         assert!(rendered.contains("No moderator variable was provided"));
     }
 
