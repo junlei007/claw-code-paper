@@ -2888,6 +2888,7 @@ fn build_recipe_process_prompt(path: &str, request_spec: Option<&str>) -> String
         "Run the questionnaire PROCESSv50 workflow for dataset `{path}`.\n\n\
 {request_instruction}Start from `survey_metadata` only if you still need schema or scored-variable context; otherwise prefer the PROCESSv50 external plugin path.\n\
 If `processv50_run` is available, use it with `datasetPath` set to `{path}` and with explicit role fields (`x`, `y`, and any needed `m`, `w`, `z`, `covariates`).\n\
+If the roles are already clear, attempt `processv50_run` directly before spending time on tool search, plugin source inspection, or fallback planning. Treat an installed external plugin tool as callable even if generic discovery/search tools lag behind.\n\
 Use a default PROCESS model only when the request clearly matches a common simple case: mediation → model `4`, moderation → model `1`. Otherwise ask for the exact model only when the structure is still ambiguous.\n\n\
 Goal:\n\
 - classify the request as mediation, moderation, or another conditional process variant before execution\n\
@@ -2896,6 +2897,7 @@ Goal:\n\
 - request a local `processScriptPath` (or tell the user to set `PROCESSV50_R_PATH`) if the execution path is not already available\n\
 - recommend an `outputPath` artifact for the text report when the user has not provided one\n\
 - surface centering, bootstrap, confidence-level, and blocker details clearly\n\
+- once `processv50_run` succeeds, stop and give a brief summary instead of inspecting plugin internals or rereading obvious fixture files\n\
 - do not fabricate PROCESS coefficients, indirect effects, interaction effects, or significance claims\n\n\
 If `processv50_run` is unavailable, say that `research-processv50@external` must be enabled or installed from `examples/external-plugins/research-processv50`, then fall back to the questionnaire PROCESSv50 SOP for planning guidance only."
     )
@@ -2912,6 +2914,7 @@ fn build_recipe_mediation_prompt(path: &str, variable_roles: Option<&str>) -> St
         "Run the questionnaire mediation workflow for dataset `{path}`.\n\n\
 {role_instruction}Start from `survey_metadata` only if you still need schema or scored-variable context; otherwise prefer the PROCESSv50 external plugin path.\n\
 If `processv50_run` is available, use it with `datasetPath` set to `{path}` and with explicit `x`, `m`, and `y` roles.\n\
+If the X/M/Y roles are already clear, attempt `processv50_run` directly before spending time on tool search, plugin source inspection, or fallback planning. Treat an installed external plugin tool as callable even if generic discovery/search tools lag behind.\n\
 When the request is a standard simple mediation and no better PROCESS model is specified, default to model `4`; otherwise ask for the exact model only when the requested structure is ambiguous.\n\n\
 Goal:\n\
 - keep this on scored observed variables rather than inventing latent-variable structure\n\
@@ -2919,6 +2922,7 @@ Goal:\n\
 - request a local `processScriptPath` (or tell the user to set `PROCESSV50_R_PATH`) if the execution path is not already available\n\
 - recommend an `outputPath` artifact for the text report when the user has not provided one\n\
 - surface bootstrap / confidence-level choices and any blockers clearly\n\
+- once `processv50_run` succeeds, stop and give a brief summary instead of inspecting plugin internals or rereading obvious fixture files\n\
 - do not fabricate indirect effects, significance claims, or PROCESS output\n\n\
 If `processv50_run` is unavailable, say that `research-processv50@external` must be enabled or installed from `examples/external-plugins/research-processv50`, then fall back to the questionnaire PROCESSv50 SOP for planning guidance only."
     )
@@ -2935,6 +2939,7 @@ fn build_recipe_moderation_prompt(path: &str, variable_roles: Option<&str>) -> S
         "Run the questionnaire moderation workflow for dataset `{path}`.\n\n\
 {role_instruction}Start from `survey_metadata` only if you still need schema or scored-variable context; otherwise prefer the PROCESSv50 external plugin path.\n\
 If `processv50_run` is available, use it with `datasetPath` set to `{path}` and with explicit `x`, `w`, and `y` roles.\n\
+If the X/W/Y roles are already clear, attempt `processv50_run` directly before spending time on tool search, plugin source inspection, or fallback planning. Treat an installed external plugin tool as callable even if generic discovery/search tools lag behind.\n\
 When the request is a standard simple moderation and no better PROCESS model is specified, default to model `1`; otherwise ask for the exact model only when the requested structure is ambiguous.\n\n\
 Goal:\n\
 - keep this on scored observed variables rather than inventing latent-variable structure\n\
@@ -2942,6 +2947,7 @@ Goal:\n\
 - request a local `processScriptPath` (or tell the user to set `PROCESSV50_R_PATH`) if the execution path is not already available\n\
 - recommend an `outputPath` artifact for the text report when the user has not provided one\n\
 - surface centering / interaction decisions, bootstrap / confidence-level choices, and blockers clearly\n\
+- once `processv50_run` succeeds, stop and give a brief summary instead of inspecting plugin internals or rereading obvious fixture files\n\
 - do not fabricate interaction effects, significance claims, or PROCESS output\n\n\
 If `processv50_run` is unavailable, say that `research-processv50@external` must be enabled or installed from `examples/external-plugins/research-processv50`, then fall back to the questionnaire PROCESSv50 SOP for planning guidance only."
     )
@@ -8083,14 +8089,20 @@ mod tests {
         assert!(cfa.contains("engagement =~ q1 + q2 + q3 + q4"));
         assert!(cfa.contains("survey_psychometrics"));
         assert!(process.contains("processv50_run"));
+        assert!(process.contains("attempt `processv50_run` directly"));
+        assert!(process.contains("once `processv50_run` succeeds, stop"));
         assert!(process.contains("model `4`, moderation → model `1`"));
         assert!(process.contains("model 7: stress -> coping -> burnout with support as moderator"));
         assert!(process.contains("research-processv50@external"));
         assert!(mediation.contains("processv50_run"));
+        assert!(mediation.contains("attempt `processv50_run` directly"));
+        assert!(mediation.contains("once `processv50_run` succeeds, stop"));
         assert!(mediation.contains("default to model `4`"));
         assert!(mediation.contains("stress -> coping -> burnout"));
         assert!(mediation.contains("research-processv50@external"));
         assert!(moderation.contains("processv50_run"));
+        assert!(moderation.contains("attempt `processv50_run` directly"));
+        assert!(moderation.contains("once `processv50_run` succeeds, stop"));
         assert!(moderation.contains("default to model `1`"));
         assert!(moderation.contains("stress * support -> burnout"));
         assert!(moderation.contains("PROCESSV50_R_PATH"));
