@@ -2893,6 +2893,7 @@ Use a default PROCESS model only when the request clearly matches a common simpl
 Goal:\n\
 - classify the request as mediation, moderation, or another conditional process variant before execution\n\
 - keep this on scored observed variables rather than inventing latent-variable structure\n\
+- if the user actually needs latent variables, latent mediation, or latent moderation, recommend an SEM / structural-equation path (for example CFA/SEM with `research-sem@external`) instead of forcing PROCESSv50\n\
 - verify that the needed variable roles are explicit and suitable for an observed-variable PROCESS-style run\n\
 - request a local `processScriptPath` (or tell the user to set `PROCESSV50_R_PATH`) if the execution path is not already available\n\
 - recommend an `outputPath` artifact for the text report when the user has not provided one\n\
@@ -2918,6 +2919,7 @@ If the X/M/Y roles are already clear, attempt `processv50_run` directly before s
 When the request is a standard simple mediation and no better PROCESS model is specified, default to model `4`; otherwise ask for the exact model only when the requested structure is ambiguous.\n\n\
 Goal:\n\
 - keep this on scored observed variables rather than inventing latent-variable structure\n\
+- if the user actually needs latent mediation or latent constructs, recommend an SEM / structural-equation path (for example CFA/SEM with `research-sem@external`) instead of forcing PROCESSv50\n\
 - verify that X/M/Y roles are explicit and suitable for an observed-variable PROCESS-style run\n\
 - request a local `processScriptPath` (or tell the user to set `PROCESSV50_R_PATH`) if the execution path is not already available\n\
 - recommend an `outputPath` artifact for the text report when the user has not provided one\n\
@@ -2943,6 +2945,7 @@ If the X/W/Y roles are already clear, attempt `processv50_run` directly before s
 When the request is a standard simple moderation and no better PROCESS model is specified, default to model `1`; otherwise ask for the exact model only when the requested structure is ambiguous.\n\n\
 Goal:\n\
 - keep this on scored observed variables rather than inventing latent-variable structure\n\
+- if the user actually needs latent moderation or latent constructs, recommend an SEM / structural-equation path (for example CFA/SEM with `research-sem@external`) instead of forcing PROCESSv50\n\
 - verify that X/W/Y roles are explicit and suitable for an observed-variable PROCESS-style run\n\
 - request a local `processScriptPath` (or tell the user to set `PROCESSV50_R_PATH`) if the execution path is not already available\n\
 - recommend an `outputPath` artifact for the text report when the user has not provided one\n\
@@ -8092,18 +8095,24 @@ mod tests {
         assert!(process.contains("attempt `processv50_run` directly"));
         assert!(process.contains("once `processv50_run` succeeds, stop"));
         assert!(process.contains("model `4`, moderation → model `1`"));
+        assert!(process.contains("latent variables"));
+        assert!(process.contains("research-sem@external"));
         assert!(process.contains("model 7: stress -> coping -> burnout with support as moderator"));
         assert!(process.contains("research-processv50@external"));
         assert!(mediation.contains("processv50_run"));
         assert!(mediation.contains("attempt `processv50_run` directly"));
         assert!(mediation.contains("once `processv50_run` succeeds, stop"));
         assert!(mediation.contains("default to model `4`"));
+        assert!(mediation.contains("latent mediation"));
+        assert!(mediation.contains("research-sem@external"));
         assert!(mediation.contains("stress -> coping -> burnout"));
         assert!(mediation.contains("research-processv50@external"));
         assert!(moderation.contains("processv50_run"));
         assert!(moderation.contains("attempt `processv50_run` directly"));
         assert!(moderation.contains("once `processv50_run` succeeds, stop"));
         assert!(moderation.contains("default to model `1`"));
+        assert!(moderation.contains("latent moderation"));
+        assert!(moderation.contains("research-sem@external"));
         assert!(moderation.contains("stress * support -> burnout"));
         assert!(moderation.contains("PROCESSV50_R_PATH"));
         assert!(report.contains("survey_report"));

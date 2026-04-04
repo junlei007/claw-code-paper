@@ -29,6 +29,12 @@ PROCESSv50 is a strong example of a method family that should begin **outside** 
 
 So this prototype is intentionally thin: one manifest, one wrapper tool, one fixture dataset, one mock process script for validation, one contract note, one README.
 
+## Important modeling boundary
+
+This prototype is for **observed-variable PROCESS-style** mediation / moderation workflows.
+
+If your project needs **latent variables** or latent mediation / moderation, prefer a **SEM / structural equation** route instead, such as the [`../research-sem/`](../research-sem/) prototype and the questionnaire SEM workflow docs.
+
 ---
 
 ## Included tool

@@ -44,5 +44,6 @@ The wrapper:
 ## Limits
 
 - current prototype focuses on observed-variable PROCESS-style workflows
+- latent-variable mediation / moderation requests should be redirected to an SEM / structural-equation workflow instead of this plugin
 - report parsing is intentionally shallow; it preserves the native text report rather than inventing structured coefficients
 - stability depends on the local PROCESS release and the team's private execution environment

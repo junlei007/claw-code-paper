@@ -37,6 +37,9 @@ This workflow is most appropriate when:
 - the team wants a regression-oriented path rather than a latent SEM-first path
 - the model roles for `X`, `M`, `Y`, and optional `W` are explicit
 
+If the project really needs **latent-variable mediation / moderation / conditional process** rather than observed composites, prefer a **structural equation modeling (SEM)** path instead of PROCESSv50.
+In this repo that usually means starting from the questionnaire SEM workflow and the `research-sem` external-plugin lane.
+
 ---
 
 ## Preconditions
