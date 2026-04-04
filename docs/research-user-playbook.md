@@ -142,6 +142,7 @@ cd rust
 
 进一步看：
 
+- [`../examples/external-plugins/research-processv50/README.md`](../examples/external-plugins/research-processv50/README.md)
 - [`../examples/external-plugins/research-regression/README.md`](../examples/external-plugins/research-regression/README.md)
 - [`./research-extension-demo.md`](./research-extension-demo.md)
 

@@ -1,0 +1,53 @@
+{
+  "name": "research-processv50",
+  "version": "0.1.0",
+  "description": "Prototype external plugin for PROCESSv50-style questionnaire mediation, moderation, and conditional process workflows using a locally provided process.R.",
+  "tools": [
+    {
+      "name": "processv50_run",
+      "description": "Run a PROCESSv50-style analysis through a local process.R script and return structured execution metadata plus a text report artifact.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "datasetPath": { "type": "string" },
+          "model": { "type": "integer" },
+          "y": { "type": "string" },
+          "x": { "type": "string" },
+          "m": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          },
+          "w": { "type": "string" },
+          "z": { "type": "string" },
+          "covariates": {
+            "oneOf": [
+              { "type": "string" },
+              { "type": "array", "items": { "type": "string" } }
+            ]
+          },
+          "boot": { "type": "integer", "minimum": 0 },
+          "conf": { "type": "number" },
+          "center": { "type": "integer" },
+          "seed": { "type": "integer" },
+          "delimiter": { "type": "string" },
+          "encoding": { "type": "string" },
+          "naValues": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "processScriptPath": { "type": "string" },
+          "outputPath": { "type": "string" }
+        },
+        "required": ["datasetPath", "model", "y", "x"],
+        "additionalProperties": true
+      },
+      "command": "Rscript",
+      "args": [
+        "./tools/processv50_tools.R"
+      ],
+      "requiredPermission": "workspace-write"
+    }
+  ]
+}

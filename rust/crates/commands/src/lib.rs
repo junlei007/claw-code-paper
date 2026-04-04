@@ -2654,6 +2654,40 @@ mod tests {
     }
 
     #[test]
+    fn installs_example_processv50_plugin_from_repo() {
+        let config_home = temp_dir("example-processv50-plugin-home");
+        let source_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../examples/external-plugins/research-processv50");
+        assert!(
+            source_root
+                .join(".claw-plugin")
+                .join("plugin.json")
+                .is_file(),
+            "example plugin manifest should exist at {}",
+            source_root.display()
+        );
+
+        let mut manager = PluginManager::new(PluginManagerConfig::new(&config_home));
+        let install = handle_plugins_slash_command(
+            Some("install"),
+            Some(source_root.to_str().expect("utf8 path")),
+            &mut manager,
+        )
+        .expect("installing PROCESSv50 example plugin should succeed");
+        assert!(install.reload_runtime);
+        assert!(install
+            .message
+            .contains("installed research-processv50@external"));
+
+        let list = handle_plugins_slash_command(Some("list"), None, &mut manager)
+            .expect("listing PROCESSv50 example plugin should succeed");
+        assert!(list.message.contains("research-processv50"));
+        assert!(list.message.contains("enabled"));
+
+        let _ = fs::remove_dir_all(config_home);
+    }
+
+    #[test]
     fn enables_and_disables_plugin_by_name() {
         let config_home = temp_dir("toggle-home");
         let source_root = temp_dir("toggle-source");

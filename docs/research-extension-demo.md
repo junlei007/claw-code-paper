@@ -129,6 +129,11 @@ cd rust
 - [`../examples/external-plugins/research-sem/README.md`](../examples/external-plugins/research-sem/README.md)
 - [`./questionnaire-sem-rehearsal.md`](./questionnaire-sem-rehearsal.md)
 
+如果你要走 **PROCESSv50 / mediation / moderation** 路线，也可以参考：
+
+- [`../examples/external-plugins/research-processv50/README.md`](../examples/external-plugins/research-processv50/README.md)
+- [`../examples/project-skills/questionnaire-processv50-sop/`](../examples/project-skills/questionnaire-processv50-sop/)
+
 ---
 
 ## Step 4：直接调用 regression 原型工具
@@ -218,4 +223,5 @@ env CLAW_TOOL_NAME=regression_ols \
 - [`./research-method-registry.md`](./research-method-registry.md)
 - [`./questionnaire-sem-rehearsal.md`](./questionnaire-sem-rehearsal.md)
 - [`../examples/external-plugins/research-sem/README.md`](../examples/external-plugins/research-sem/README.md)
+- [`../examples/external-plugins/research-processv50/README.md`](../examples/external-plugins/research-processv50/README.md)
 - [`../examples/external-plugins/research-regression/README.md`](../examples/external-plugins/research-regression/README.md)
