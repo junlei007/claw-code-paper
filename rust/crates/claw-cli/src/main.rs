@@ -2071,6 +2071,16 @@ impl LiveCli {
                 println!("{}", format_recipe_help_report(dataset));
                 Ok(false)
             }
+            Some("score") => {
+                let Some(dataset) = dataset else {
+                    println!(
+                        "Usage: /recipe score  (load a dataset first with /dataset load <path>)"
+                    );
+                    return Ok(false);
+                };
+                self.run_turn(&build_recipe_score_prompt(dataset))?;
+                Ok(false)
+            }
             Some("reliability") => {
                 let Some(dataset) = dataset else {
                     println!("Usage: /recipe reliability  (load a dataset first with /dataset load <path>)");
@@ -2099,7 +2109,7 @@ impl LiveCli {
             }
             Some(other) => {
                 println!(
-                    "Unknown /recipe action '{other}'. Use /recipe reliability, /recipe cfa [model-spec], /recipe report, or /recipe."
+                    "Unknown /recipe action '{other}'. Use /recipe score, /recipe reliability, /recipe cfa [model-spec], /recipe report, or /recipe."
                 );
                 Ok(false)
             }
@@ -2766,9 +2776,9 @@ fn format_dataset_loaded_report(path: &str) -> String {
 fn format_recipe_help_report(active_dataset: Option<&str>) -> String {
     match active_dataset {
         Some(path) => format!(
-            "Recipe\n  Active dataset   {path}\n  Shortcuts        /recipe reliability · /recipe cfa [model-spec] · /recipe report"
+            "Recipe\n  Active dataset   {path}\n  Shortcuts        /recipe score · /recipe reliability · /recipe cfa [model-spec] · /recipe report"
         ),
-        None => "Recipe\n  Active dataset   none\n  Next step        /dataset load <path>\n  Shortcuts        /recipe reliability · /recipe cfa [model-spec] · /recipe report".to_string(),
+        None => "Recipe\n  Active dataset   none\n  Next step        /dataset load <path>\n  Shortcuts        /recipe score · /recipe reliability · /recipe cfa [model-spec] · /recipe report".to_string(),
     }
 }
 
@@ -2797,6 +2807,21 @@ Goal:\n\
 - report KMO / Bartlett when available\n\
 - surface warnings and any missing prerequisites clearly\n\n\
 If scaleDefinitions or reverse-coded items are missing, ask for the minimum clarification needed instead of inventing them.\n\
+If the plugin is unavailable, say that `research-survey@bundled` must be enabled."
+    )
+}
+
+fn build_recipe_score_prompt(path: &str) -> String {
+    format!(
+        "Run the survey scoring workflow for dataset `{path}`.\n\n\
+Use the bundled research-survey plugin and call `survey_score` with `datasetPath` set to `{path}`.\n\
+If you still need to inspect structure first, use `survey_metadata` before scoring.\n\n\
+Goal:\n\
+- compute reverse-key handling and scale-level scores with `survey_score`\n\
+- summarize output columns, rows scored, score distributions, and warnings\n\
+- recommend an `outputPath` artifact when downstream psychometrics or reporting should reuse the scored dataset\n\
+- do not invent scaleDefinitions, reverseItems, or response scale bounds\n\n\
+If the user has not supplied scale definitions or reverse-coded item details, ask for the minimum missing information needed.\n\
 If the plugin is unavailable, say that `research-survey@bundled` must be enabled."
     )
 }
@@ -6385,16 +6410,17 @@ fn print_help() {
 mod tests {
     use super::{
         build_dataset_describe_prompt, build_recipe_cfa_prompt, build_recipe_reliability_prompt,
-        build_recipe_report_prompt, describe_tool_progress, doctor_project_skill,
-        filter_tool_specs, format_compact_report, format_cost_report, format_dataset_loaded_report,
-        format_dataset_status_report, format_internal_prompt_progress_line, format_model_report,
-        format_model_switch_report, format_permissions_report, format_permissions_switch_report,
-        format_provider_report, format_provider_switch_report, format_recipe_help_report,
-        format_resume_report, format_status_report, format_theme_report, format_tool_call_start,
-        format_tool_result, normalize_permission_mode, parse_args, parse_git_status_metadata,
-        permission_policy, print_help_to, promote_project_skill, push_output_block,
-        render_config_report, render_memory_report, render_repl_help, resolve_client_selection,
-        resolve_model_alias, response_to_events, resume_supported_slash_commands, status_context,
+        build_recipe_report_prompt, build_recipe_score_prompt, describe_tool_progress,
+        doctor_project_skill, filter_tool_specs, format_compact_report, format_cost_report,
+        format_dataset_loaded_report, format_dataset_status_report,
+        format_internal_prompt_progress_line, format_model_report, format_model_switch_report,
+        format_permissions_report, format_permissions_switch_report, format_provider_report,
+        format_provider_switch_report, format_recipe_help_report, format_resume_report,
+        format_status_report, format_theme_report, format_tool_call_start, format_tool_result,
+        normalize_permission_mode, parse_args, parse_git_status_metadata, permission_policy,
+        print_help_to, promote_project_skill, push_output_block, render_config_report,
+        render_memory_report, render_repl_help, resolve_client_selection, resolve_model_alias,
+        response_to_events, resume_supported_slash_commands, status_context,
         validate_project_skill_report, CliAction, CliOutputFormat, InitOptions,
         InitResearchProfile, InternalPromptProgressEvent, InternalPromptProgressState,
         ProjectSkillCommand, SlashCommand, StatusUsage,
@@ -7761,7 +7787,7 @@ mod tests {
         assert!(help.contains("Shift+Enter/Ctrl+J"));
         assert!(help.contains("/theme toggle"));
         assert!(help.contains("/dataset [load <path>|describe [path]]"));
-        assert!(help.contains("/recipe [reliability|cfa|report]"));
+        assert!(help.contains("/recipe [score|reliability|cfa|report]"));
         assert!(help.contains("/compact before long sessions"));
     }
 
@@ -7791,13 +7817,19 @@ mod tests {
     #[test]
     fn recipe_reports_and_prompts_use_active_dataset_workflow() {
         let help = format_recipe_help_report(Some("fixtures/mini.csv"));
+        let score = build_recipe_score_prompt("fixtures/mini.csv");
         let reliability = build_recipe_reliability_prompt("fixtures/mini.csv");
         let cfa =
             build_recipe_cfa_prompt("fixtures/mini.csv", Some("engagement =~ q1 + q2 + q3 + q4"));
         let report = build_recipe_report_prompt("fixtures/mini.csv");
 
         assert!(help.contains("fixtures/mini.csv"));
+        assert!(help.contains("/recipe score"));
         assert!(help.contains("/recipe reliability"));
+        assert!(score.contains("survey_score"));
+        assert!(score.contains("fixtures/mini.csv"));
+        assert!(score.contains("do not invent scaleDefinitions"));
+        assert!(score.contains("`outputPath` artifact"));
         assert!(reliability.contains("survey_psychometrics"));
         assert!(reliability.contains("fixtures/mini.csv"));
         assert!(reliability.contains("scaleDefinitions or reverse-coded items are missing"));

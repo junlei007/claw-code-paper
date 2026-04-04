@@ -275,7 +275,7 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         name: "recipe",
         aliases: &[],
         summary: "Start a survey workflow recipe from the active dataset",
-        argument_hint: Some("[reliability|cfa|report]"),
+        argument_hint: Some("[score|reliability|cfa|report]"),
         resume_supported: false,
         category: SlashCommandCategory::Workspace,
     },
@@ -2275,7 +2275,7 @@ mod tests {
         assert!(help.contains("/ultraplan [task]"));
         assert!(help.contains("/teleport <symbol-or-path>"));
         assert!(help.contains("/dataset [load <path>|describe [path]]"));
-        assert!(help.contains("/recipe [reliability|cfa|report]"));
+        assert!(help.contains("/recipe [score|reliability|cfa|report]"));
         assert!(help.contains("/debug-tool-call"));
         assert!(help.contains("/model [model]"));
         assert!(help.contains("/provider [profile]"));
