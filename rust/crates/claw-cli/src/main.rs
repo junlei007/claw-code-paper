@@ -1498,6 +1498,7 @@ fn run_resume_command(
         | SlashCommand::Ultraplan { .. }
         | SlashCommand::Teleport { .. }
         | SlashCommand::Dataset { .. }
+        | SlashCommand::Recipe { .. }
         | SlashCommand::DebugToolCall
         | SlashCommand::Resume { .. }
         | SlashCommand::Model { .. }
@@ -1910,6 +1911,9 @@ impl LiveCli {
             SlashCommand::Dataset { action, target } => {
                 self.handle_dataset_command(action.as_deref(), target.as_deref())?
             }
+            SlashCommand::Recipe { action, target } => {
+                self.handle_recipe_command(action.as_deref(), target.as_deref())?
+            }
             SlashCommand::DebugToolCall => {
                 self.run_debug_tool_call()?;
                 false
@@ -2050,6 +2054,52 @@ impl LiveCli {
             Some(other) => {
                 println!(
                     "Unknown /dataset action '{other}'. Use /dataset load <path>, /dataset describe [path], or /dataset."
+                );
+                Ok(false)
+            }
+        }
+    }
+
+    fn handle_recipe_command(
+        &mut self,
+        action: Option<&str>,
+        target: Option<&str>,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        let dataset = self.active_dataset.as_deref();
+        match action {
+            None => {
+                println!("{}", format_recipe_help_report(dataset));
+                Ok(false)
+            }
+            Some("reliability") => {
+                let Some(dataset) = dataset else {
+                    println!("Usage: /recipe reliability  (load a dataset first with /dataset load <path>)");
+                    return Ok(false);
+                };
+                self.run_turn(&build_recipe_reliability_prompt(dataset))?;
+                Ok(false)
+            }
+            Some("cfa") => {
+                let Some(dataset) = dataset else {
+                    println!("Usage: /recipe cfa [model-spec]  (load a dataset first with /dataset load <path>)");
+                    return Ok(false);
+                };
+                self.run_turn(&build_recipe_cfa_prompt(dataset, target))?;
+                Ok(false)
+            }
+            Some("report") => {
+                let Some(dataset) = dataset else {
+                    println!(
+                        "Usage: /recipe report  (load a dataset first with /dataset load <path>)"
+                    );
+                    return Ok(false);
+                };
+                self.run_turn(&build_recipe_report_prompt(dataset))?;
+                Ok(false)
+            }
+            Some(other) => {
+                println!(
+                    "Unknown /recipe action '{other}'. Use /recipe reliability, /recipe cfa [model-spec], /recipe report, or /recipe."
                 );
                 Ok(false)
             }
@@ -2713,6 +2763,15 @@ fn format_dataset_loaded_report(path: &str) -> String {
     )
 }
 
+fn format_recipe_help_report(active_dataset: Option<&str>) -> String {
+    match active_dataset {
+        Some(path) => format!(
+            "Recipe\n  Active dataset   {path}\n  Shortcuts        /recipe reliability · /recipe cfa [model-spec] · /recipe report"
+        ),
+        None => "Recipe\n  Active dataset   none\n  Next step        /dataset load <path>\n  Shortcuts        /recipe reliability · /recipe cfa [model-spec] · /recipe report".to_string(),
+    }
+}
+
 fn build_dataset_describe_prompt(path: &str) -> String {
     format!(
         "Use the bundled research-survey workflow to inspect the dataset at `{path}`.\n\n\
@@ -2725,6 +2784,54 @@ Then give a concise summary covering:\n\
 - questionnaire coverage issues or unresolved reverse-coded items\n\
 - recommended next steps for scoring / psychometrics / reporting\n\
 \nDo not invent scale definitions or dataset facts that are not present in the tool result."
+    )
+}
+
+fn build_recipe_reliability_prompt(path: &str) -> String {
+    format!(
+        "Run the survey reliability workflow for dataset `{path}`.\n\n\
+Use the bundled research-survey plugin. Start from `survey_metadata` only if you still need dataset structure context; otherwise proceed to `survey_psychometrics` with `datasetPath` set to `{path}` and without a CFA model.\n\n\
+Goal:\n\
+- evaluate reliability and validity pre-checks for the questionnaire\n\
+- report Cronbach's alpha / omega when available\n\
+- report KMO / Bartlett when available\n\
+- surface warnings and any missing prerequisites clearly\n\n\
+If scaleDefinitions or reverse-coded items are missing, ask for the minimum clarification needed instead of inventing them.\n\
+If the plugin is unavailable, say that `research-survey@bundled` must be enabled."
+    )
+}
+
+fn build_recipe_cfa_prompt(path: &str, model_spec: Option<&str>) -> String {
+    let model_instruction = match model_spec.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(spec) => format!("Use this CFA model specification directly:\n`{spec}`\n\n"),
+        None => {
+            "If a CFA model specification is still missing, ask for it before attempting CFA.\n\n"
+                .to_string()
+        }
+    };
+    format!(
+        "Run the survey CFA workflow for dataset `{path}`.\n\n\
+{model_instruction}Use the bundled research-survey plugin and call `survey_psychometrics` with `datasetPath` set to `{path}`.\n\
+Include `cfaModel` only when you have a valid model specification.\n\n\
+Goal:\n\
+- run CFA if the model is available\n\
+- summarize fit indices and standardized loadings when returned\n\
+- surface convergence / singularity / collinearity warnings clearly\n\
+- avoid inventing scaleDefinitions, reverseItems, or CFA structure\n\n\
+If the plugin is unavailable, say that `research-survey@bundled` must be enabled."
+    )
+}
+
+fn build_recipe_report_prompt(path: &str) -> String {
+    format!(
+        "Run the survey reporting workflow for dataset `{path}`.\n\n\
+Use the bundled research-survey plugin. Reuse existing structured results from this conversation when available; otherwise say what prerequisite analysis outputs are still missing before `survey_report` can produce a meaningful report.\n\n\
+Goal:\n\
+- produce or refine a concise results-style markdown report\n\
+- prefer structured evidence from survey metadata / scoring / psychometrics results\n\
+- surface delivery readiness, blocking reasons, and review verdicts when `survey_report` returns them\n\
+- do not fabricate figures, tables, or statistical findings\n\n\
+If the plugin is unavailable, say that `research-survey@bundled` must be enabled."
     )
 }
 
@@ -6277,16 +6384,17 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_dataset_describe_prompt, describe_tool_progress, doctor_project_skill,
+        build_dataset_describe_prompt, build_recipe_cfa_prompt, build_recipe_reliability_prompt,
+        build_recipe_report_prompt, describe_tool_progress, doctor_project_skill,
         filter_tool_specs, format_compact_report, format_cost_report, format_dataset_loaded_report,
         format_dataset_status_report, format_internal_prompt_progress_line, format_model_report,
         format_model_switch_report, format_permissions_report, format_permissions_switch_report,
-        format_provider_report, format_provider_switch_report, format_resume_report,
-        format_status_report, format_theme_report, format_tool_call_start, format_tool_result,
-        normalize_permission_mode, parse_args, parse_git_status_metadata, permission_policy,
-        print_help_to, promote_project_skill, push_output_block, render_config_report,
-        render_memory_report, render_repl_help, resolve_client_selection, resolve_model_alias,
-        response_to_events, resume_supported_slash_commands, status_context,
+        format_provider_report, format_provider_switch_report, format_recipe_help_report,
+        format_resume_report, format_status_report, format_theme_report, format_tool_call_start,
+        format_tool_result, normalize_permission_mode, parse_args, parse_git_status_metadata,
+        permission_policy, print_help_to, promote_project_skill, push_output_block,
+        render_config_report, render_memory_report, render_repl_help, resolve_client_selection,
+        resolve_model_alias, response_to_events, resume_supported_slash_commands, status_context,
         validate_project_skill_report, CliAction, CliOutputFormat, InitOptions,
         InitResearchProfile, InternalPromptProgressEvent, InternalPromptProgressState,
         ProjectSkillCommand, SlashCommand, StatusUsage,
@@ -7653,6 +7761,7 @@ mod tests {
         assert!(help.contains("Shift+Enter/Ctrl+J"));
         assert!(help.contains("/theme toggle"));
         assert!(help.contains("/dataset [load <path>|describe [path]]"));
+        assert!(help.contains("/recipe [reliability|cfa|report]"));
         assert!(help.contains("/compact before long sessions"));
     }
 
@@ -7677,6 +7786,27 @@ mod tests {
         assert!(prompt.contains("fixtures/mini.csv"));
         assert!(prompt.contains("research-survey plugin must be enabled"));
         assert!(prompt.contains("Do not invent scale definitions"));
+    }
+
+    #[test]
+    fn recipe_reports_and_prompts_use_active_dataset_workflow() {
+        let help = format_recipe_help_report(Some("fixtures/mini.csv"));
+        let reliability = build_recipe_reliability_prompt("fixtures/mini.csv");
+        let cfa =
+            build_recipe_cfa_prompt("fixtures/mini.csv", Some("engagement =~ q1 + q2 + q3 + q4"));
+        let report = build_recipe_report_prompt("fixtures/mini.csv");
+
+        assert!(help.contains("fixtures/mini.csv"));
+        assert!(help.contains("/recipe reliability"));
+        assert!(reliability.contains("survey_psychometrics"));
+        assert!(reliability.contains("fixtures/mini.csv"));
+        assert!(reliability.contains("scaleDefinitions or reverse-coded items are missing"));
+        assert!(cfa.contains("cfaModel"));
+        assert!(cfa.contains("engagement =~ q1 + q2 + q3 + q4"));
+        assert!(cfa.contains("survey_psychometrics"));
+        assert!(report.contains("survey_report"));
+        assert!(report.contains("delivery readiness"));
+        assert!(report.contains("do not fabricate"));
     }
 
     #[test]
