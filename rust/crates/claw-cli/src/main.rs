@@ -2097,6 +2097,16 @@ impl LiveCli {
                 self.run_turn(&build_recipe_cfa_prompt(dataset, target))?;
                 Ok(false)
             }
+            Some("process") => {
+                let Some(dataset) = dataset else {
+                    println!(
+                        "Usage: /recipe process [model / roles / hypothesis]  (load a dataset first with /dataset load <path>)"
+                    );
+                    return Ok(false);
+                };
+                self.run_turn(&build_recipe_process_prompt(dataset, target))?;
+                Ok(false)
+            }
             Some("mediation") => {
                 let Some(dataset) = dataset else {
                     println!(
@@ -2129,7 +2139,7 @@ impl LiveCli {
             }
             Some(other) => {
                 println!(
-                    "Unknown /recipe action '{other}'. Use /recipe score, /recipe reliability, /recipe cfa [model-spec], /recipe mediation [x -> m -> y], /recipe moderation [x * w -> y], /recipe report, or /recipe."
+                    "Unknown /recipe action '{other}'. Use /recipe score, /recipe reliability, /recipe cfa [model-spec], /recipe process [model / roles / hypothesis], /recipe mediation [x -> m -> y], /recipe moderation [x * w -> y], /recipe report, or /recipe."
                 );
                 Ok(false)
             }
@@ -2796,9 +2806,9 @@ fn format_dataset_loaded_report(path: &str) -> String {
 fn format_recipe_help_report(active_dataset: Option<&str>) -> String {
     match active_dataset {
         Some(path) => format!(
-            "Recipe\n  Active dataset   {path}\n  Shortcuts        /recipe score · /recipe reliability · /recipe cfa [model-spec] · /recipe mediation [x -> m -> y] · /recipe moderation [x * w -> y] · /recipe report"
+            "Recipe\n  Active dataset   {path}\n  Shortcuts        /recipe score · /recipe reliability · /recipe cfa [model-spec] · /recipe process [model / roles / hypothesis] · /recipe mediation [x -> m -> y] · /recipe moderation [x * w -> y] · /recipe report"
         ),
-        None => "Recipe\n  Active dataset   none\n  Next step        /dataset load <path>\n  Shortcuts        /recipe score · /recipe reliability · /recipe cfa [model-spec] · /recipe mediation [x -> m -> y] · /recipe moderation [x * w -> y] · /recipe report".to_string(),
+        None => "Recipe\n  Active dataset   none\n  Next step        /dataset load <path>\n  Shortcuts        /recipe score · /recipe reliability · /recipe cfa [model-spec] · /recipe process [model / roles / hypothesis] · /recipe mediation [x -> m -> y] · /recipe moderation [x * w -> y] · /recipe report".to_string(),
     }
 }
 
@@ -2864,6 +2874,30 @@ Goal:\n\
 - surface convergence / singularity / collinearity warnings clearly\n\
 - avoid inventing scaleDefinitions, reverseItems, or CFA structure\n\n\
 If the plugin is unavailable, say that `research-survey@bundled` must be enabled."
+    )
+}
+
+fn build_recipe_process_prompt(path: &str, request_spec: Option<&str>) -> String {
+    let request_instruction = match request_spec.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(spec) => format!(
+            "Use this PROCESSv50 request hint if it is consistent with the dataset and the user's intent:\n`{spec}`\n\n"
+        ),
+        None => "If the user has not yet specified whether this is mediation, moderation, or another conditional process pattern, ask for the minimum missing detail before attempting the run.\n\n".to_string(),
+    };
+    format!(
+        "Run the questionnaire PROCESSv50 workflow for dataset `{path}`.\n\n\
+{request_instruction}Start from `survey_metadata` only if you still need schema or scored-variable context; otherwise prefer the PROCESSv50 external plugin path.\n\
+If `processv50_run` is available, use it with `datasetPath` set to `{path}` and with explicit role fields (`x`, `y`, and any needed `m`, `w`, `z`, `covariates`).\n\
+Use a default PROCESS model only when the request clearly matches a common simple case: mediation → model `4`, moderation → model `1`. Otherwise ask for the exact model only when the structure is still ambiguous.\n\n\
+Goal:\n\
+- classify the request as mediation, moderation, or another conditional process variant before execution\n\
+- keep this on scored observed variables rather than inventing latent-variable structure\n\
+- verify that the needed variable roles are explicit and suitable for an observed-variable PROCESS-style run\n\
+- request a local `processScriptPath` (or tell the user to set `PROCESSV50_R_PATH`) if the execution path is not already available\n\
+- recommend an `outputPath` artifact for the text report when the user has not provided one\n\
+- surface centering, bootstrap, confidence-level, and blocker details clearly\n\
+- do not fabricate PROCESS coefficients, indirect effects, interaction effects, or significance claims\n\n\
+If `processv50_run` is unavailable, say that `research-processv50@external` must be enabled or installed from `examples/external-plugins/research-processv50`, then fall back to the questionnaire PROCESSv50 SOP for planning guidance only."
     )
 }
 
@@ -6603,10 +6637,10 @@ fn print_help() {
 mod tests {
     use super::{
         build_dataset_describe_prompt, build_recipe_cfa_prompt, build_recipe_mediation_prompt,
-        build_recipe_moderation_prompt, build_recipe_reliability_prompt,
-        build_recipe_report_prompt, build_recipe_score_prompt, describe_tool_progress,
-        doctor_project_skill, filter_tool_specs, format_compact_report, format_cost_report,
-        format_dataset_loaded_report, format_dataset_status_report,
+        build_recipe_moderation_prompt, build_recipe_process_prompt,
+        build_recipe_reliability_prompt, build_recipe_report_prompt, build_recipe_score_prompt,
+        describe_tool_progress, doctor_project_skill, filter_tool_specs, format_compact_report,
+        format_cost_report, format_dataset_loaded_report, format_dataset_status_report,
         format_internal_prompt_progress_line, format_model_report, format_model_switch_report,
         format_permissions_report, format_permissions_switch_report, format_provider_report,
         format_provider_switch_report, format_recipe_help_report, format_resume_report,
@@ -7984,7 +8018,9 @@ mod tests {
         assert!(help.contains("Shift+Enter/Ctrl+J"));
         assert!(help.contains("/theme toggle"));
         assert!(help.contains("/dataset [load <path>|describe [path]]"));
-        assert!(help.contains("/recipe [score|reliability|cfa|mediation|moderation|report]"));
+        assert!(
+            help.contains("/recipe [score|reliability|cfa|process|mediation|moderation|report]")
+        );
         assert!(help.contains("/compact before long sessions"));
     }
 
@@ -8018,6 +8054,10 @@ mod tests {
         let reliability = build_recipe_reliability_prompt("fixtures/mini.csv");
         let cfa =
             build_recipe_cfa_prompt("fixtures/mini.csv", Some("engagement =~ q1 + q2 + q3 + q4"));
+        let process = build_recipe_process_prompt(
+            "fixtures/mini.csv",
+            Some("model 7: stress -> coping -> burnout with support as moderator"),
+        );
         let mediation =
             build_recipe_mediation_prompt("fixtures/mini.csv", Some("stress -> coping -> burnout"));
         let moderation = build_recipe_moderation_prompt(
@@ -8029,6 +8069,7 @@ mod tests {
         assert!(help.contains("fixtures/mini.csv"));
         assert!(help.contains("/recipe score"));
         assert!(help.contains("/recipe reliability"));
+        assert!(help.contains("/recipe process"));
         assert!(help.contains("/recipe mediation"));
         assert!(help.contains("/recipe moderation"));
         assert!(score.contains("survey_score"));
@@ -8041,6 +8082,10 @@ mod tests {
         assert!(cfa.contains("cfaModel"));
         assert!(cfa.contains("engagement =~ q1 + q2 + q3 + q4"));
         assert!(cfa.contains("survey_psychometrics"));
+        assert!(process.contains("processv50_run"));
+        assert!(process.contains("model `4`, moderation → model `1`"));
+        assert!(process.contains("model 7: stress -> coping -> burnout with support as moderator"));
+        assert!(process.contains("research-processv50@external"));
         assert!(mediation.contains("processv50_run"));
         assert!(mediation.contains("default to model `4`"));
         assert!(mediation.contains("stress -> coping -> burnout"));
