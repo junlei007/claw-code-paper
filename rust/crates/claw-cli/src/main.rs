@@ -1497,6 +1497,7 @@ fn run_resume_command(
         | SlashCommand::Issue { .. }
         | SlashCommand::Ultraplan { .. }
         | SlashCommand::Teleport { .. }
+        | SlashCommand::Dataset { .. }
         | SlashCommand::DebugToolCall
         | SlashCommand::Resume { .. }
         | SlashCommand::Model { .. }
@@ -1664,6 +1665,7 @@ struct ManagedSessionSummary {
 struct LiveCli {
     model: String,
     provider: Option<String>,
+    active_dataset: Option<String>,
     theme_kind: ThemeKind,
     allowed_tools: Option<AllowedToolSet>,
     permission_mode: PermissionMode,
@@ -1706,6 +1708,7 @@ impl LiveCli {
         let cli = Self {
             model: selection.model,
             provider: selection.provider_id,
+            active_dataset: None,
             theme_kind,
             allowed_tools,
             permission_mode,
@@ -1904,6 +1907,9 @@ impl LiveCli {
                 self.run_teleport(target.as_deref())?;
                 false
             }
+            SlashCommand::Dataset { action, target } => {
+                self.handle_dataset_command(action.as_deref(), target.as_deref())?
+            }
             SlashCommand::DebugToolCall => {
                 self.run_debug_tool_call()?;
                 false
@@ -2003,6 +2009,51 @@ impl LiveCli {
                 &status_context(Some(&self.session.path)).expect("status context should load"),
             )
         );
+    }
+
+    fn handle_dataset_command(
+        &mut self,
+        action: Option<&str>,
+        target: Option<&str>,
+    ) -> Result<bool, Box<dyn std::error::Error>> {
+        match action {
+            None | Some("status") => {
+                println!(
+                    "{}",
+                    format_dataset_status_report(self.active_dataset.as_deref())
+                );
+                Ok(false)
+            }
+            Some("load") => {
+                let Some(path) = target.filter(|value| !value.trim().is_empty()) else {
+                    println!("Usage: /dataset load <path>");
+                    return Ok(false);
+                };
+                self.active_dataset = Some(path.trim().to_string());
+                println!("{}", format_dataset_loaded_report(path.trim()));
+                Ok(false)
+            }
+            Some("describe") => {
+                let path = target
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .or(self.active_dataset.as_deref())
+                    .map(ToOwned::to_owned);
+                let Some(path) = path else {
+                    println!("Usage: /dataset describe [path]  (or load one first with /dataset load <path>)");
+                    return Ok(false);
+                };
+                self.active_dataset = Some(path.clone());
+                self.run_turn(&build_dataset_describe_prompt(&path))?;
+                Ok(false)
+            }
+            Some(other) => {
+                println!(
+                    "Unknown /dataset action '{other}'. Use /dataset load <path>, /dataset describe [path], or /dataset."
+                );
+                Ok(false)
+            }
+        }
     }
 
     fn set_theme(&mut self, theme: Option<String>) -> Result<bool, Box<dyn std::error::Error>> {
@@ -2188,6 +2239,7 @@ impl LiveCli {
         }
 
         self.session = create_managed_session_handle()?;
+        self.active_dataset = None;
         self.runtime = self.build_runtime_for_session(
             Session::new(),
             Some(self.model.clone()),
@@ -2224,6 +2276,7 @@ impl LiveCli {
         self.runtime =
             self.build_runtime_for_session(session, Some(self.model.clone()), true, true, None)?;
         self.session = handle;
+        self.active_dataset = None;
         println!(
             "{}",
             format_resume_report(
@@ -2306,6 +2359,7 @@ impl LiveCli {
                     None,
                 )?;
                 self.session = handle;
+                self.active_dataset = None;
                 println!(
                     "Session switched\n  Active session   {}\n  File             {}\n  Messages         {}",
                     self.session.id,
@@ -2643,6 +2697,36 @@ fn render_session_list(active_session_id: &str) -> Result<String, Box<dyn std::e
 
 const REPL_HINT_TEXT: &str =
     "/status for a session snapshot · /theme toggle to switch palette · /compact before long sessions";
+
+fn format_dataset_status_report(active_dataset: Option<&str>) -> String {
+    match active_dataset {
+        Some(path) => format!(
+            "Dataset\n  Active path      {path}\n  Commands         /dataset describe · /dataset load <path>"
+        ),
+        None => "Dataset\n  Active path      none\n  Next step        /dataset load <path>\n  Describe         /dataset describe <path>".to_string(),
+    }
+}
+
+fn format_dataset_loaded_report(path: &str) -> String {
+    format!(
+        "Dataset\n  Result           loaded for this REPL session\n  Active path      {path}\n  Next step        /dataset describe"
+    )
+}
+
+fn build_dataset_describe_prompt(path: &str) -> String {
+    format!(
+        "Use the bundled research-survey workflow to inspect the dataset at `{path}`.\n\n\
+Call `survey_metadata` with `datasetPath` set to `{path}`.\n\
+If the tool is unavailable, say that the research-survey plugin must be enabled.\n\n\
+Then give a concise summary covering:\n\
+- dataset shape and detected format\n\
+- schema mix (numeric/categorical/datetime)\n\
+- missingness level\n\
+- questionnaire coverage issues or unresolved reverse-coded items\n\
+- recommended next steps for scoring / psychometrics / reporting\n\
+\nDo not invent scale definitions or dataset facts that are not present in the tool result."
+    )
+}
 
 fn render_repl_help() -> String {
     [
@@ -6193,8 +6277,9 @@ fn print_help() {
 #[cfg(test)]
 mod tests {
     use super::{
-        describe_tool_progress, doctor_project_skill, filter_tool_specs, format_compact_report,
-        format_cost_report, format_internal_prompt_progress_line, format_model_report,
+        build_dataset_describe_prompt, describe_tool_progress, doctor_project_skill,
+        filter_tool_specs, format_compact_report, format_cost_report, format_dataset_loaded_report,
+        format_dataset_status_report, format_internal_prompt_progress_line, format_model_report,
         format_model_switch_report, format_permissions_report, format_permissions_switch_report,
         format_provider_report, format_provider_switch_report, format_resume_report,
         format_status_report, format_theme_report, format_tool_call_start, format_tool_result,
@@ -7567,7 +7652,31 @@ mod tests {
         assert!(help.contains("Tab"));
         assert!(help.contains("Shift+Enter/Ctrl+J"));
         assert!(help.contains("/theme toggle"));
+        assert!(help.contains("/dataset [load <path>|describe [path]]"));
         assert!(help.contains("/compact before long sessions"));
+    }
+
+    #[test]
+    fn dataset_reports_show_status_and_loaded_path() {
+        let empty = format_dataset_status_report(None);
+        let loaded = format_dataset_loaded_report("fixtures/mini.csv");
+
+        assert!(empty.contains("Active path      none"));
+        assert!(empty.contains("/dataset load <path>"));
+        assert!(loaded.contains("loaded for this REPL session"));
+        assert!(loaded.contains("fixtures/mini.csv"));
+        assert!(loaded.contains("/dataset describe"));
+    }
+
+    #[test]
+    fn dataset_describe_prompt_uses_survey_metadata_contract() {
+        let prompt = build_dataset_describe_prompt("fixtures/mini.csv");
+
+        assert!(prompt.contains("survey_metadata"));
+        assert!(prompt.contains("datasetPath"));
+        assert!(prompt.contains("fixtures/mini.csv"));
+        assert!(prompt.contains("research-survey plugin must be enabled"));
+        assert!(prompt.contains("Do not invent scale definitions"));
     }
 
     #[test]

@@ -264,6 +264,14 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         category: SlashCommandCategory::Workspace,
     },
     SlashCommandSpec {
+        name: "dataset",
+        aliases: &[],
+        summary: "Load a research dataset path or inspect it with survey metadata",
+        argument_hint: Some("[load <path>|describe [path]]"),
+        resume_supported: false,
+        category: SlashCommandCategory::Workspace,
+    },
+    SlashCommandSpec {
         name: "debug-tool-call",
         aliases: &[],
         summary: "Replay the last tool call with debug details",
@@ -346,6 +354,10 @@ pub enum SlashCommand {
         task: Option<String>,
     },
     Teleport {
+        target: Option<String>,
+    },
+    Dataset {
+        action: Option<String>,
         target: Option<String>,
     },
     DebugToolCall,
@@ -436,6 +448,13 @@ impl SlashCommand {
             },
             "teleport" => Self::Teleport {
                 target: remainder_after_command(trimmed, command),
+            },
+            "dataset" => Self::Dataset {
+                action: parts.next().map(ToOwned::to_owned),
+                target: {
+                    let remainder = parts.collect::<Vec<_>>().join(" ");
+                    (!remainder.is_empty()).then_some(remainder)
+                },
             },
             "debug-tool-call" => Self::DebugToolCall,
             "model" => Self::Model {
@@ -1817,6 +1836,7 @@ pub fn handle_slash_command(
         | SlashCommand::Issue { .. }
         | SlashCommand::Ultraplan { .. }
         | SlashCommand::Teleport { .. }
+        | SlashCommand::Dataset { .. }
         | SlashCommand::DebugToolCall
         | SlashCommand::Model { .. }
         | SlashCommand::Provider { .. }
@@ -2182,6 +2202,20 @@ mod tests {
                 target: Some("demo".to_string())
             })
         );
+        assert_eq!(
+            SlashCommand::parse("/dataset load fixtures/mini survey.csv"),
+            Some(SlashCommand::Dataset {
+                action: Some("load".to_string()),
+                target: Some("fixtures/mini survey.csv".to_string())
+            })
+        );
+        assert_eq!(
+            SlashCommand::parse("/dataset describe"),
+            Some(SlashCommand::Dataset {
+                action: Some("describe".to_string()),
+                target: None
+            })
+        );
     }
 
     #[test]
@@ -2206,6 +2240,7 @@ mod tests {
         assert!(help.contains("/issue [context]"));
         assert!(help.contains("/ultraplan [task]"));
         assert!(help.contains("/teleport <symbol-or-path>"));
+        assert!(help.contains("/dataset [load <path>|describe [path]]"));
         assert!(help.contains("/debug-tool-call"));
         assert!(help.contains("/model [model]"));
         assert!(help.contains("/provider [profile]"));
@@ -2227,7 +2262,7 @@ mod tests {
         assert!(help.contains("aliases: /plugins, /marketplace"));
         assert!(help.contains("/agents"));
         assert!(help.contains("/skills"));
-        assert_eq!(slash_command_specs().len(), 30);
+        assert_eq!(slash_command_specs().len(), 31);
         assert_eq!(resume_supported_slash_commands().len(), 13);
     }
 
