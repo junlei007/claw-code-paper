@@ -5762,6 +5762,48 @@ fn format_metric(value: f64) -> String {
     }
 }
 
+fn format_process_effect_preview(
+    effect_summary: Option<&serde_json::Map<String, serde_json::Value>>,
+    key: &str,
+    label: &str,
+) -> Option<String> {
+    let rows = effect_summary
+        .and_then(|summary| summary.get(key))
+        .and_then(serde_json::Value::as_array)?;
+    let first = rows.first()?.as_object()?;
+    let effect = value_as_f64(first.get("effect"))?;
+    let lower_ci = value_as_f64(first.get("lowerCI"));
+    let upper_ci = value_as_f64(first.get("upperCI"));
+    let row_label = first
+        .get("label")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let suffix = if rows.len() > 1 {
+        format!(" +{}", rows.len() - 1)
+    } else {
+        String::new()
+    };
+
+    let mut rendered = String::from(label);
+    if let Some(row_label) = row_label {
+        rendered.push('(');
+        rendered.push_str(row_label);
+        rendered.push(')');
+    }
+    rendered.push(' ');
+    rendered.push_str(&format_metric(effect));
+    if let (Some(lower_ci), Some(upper_ci)) = (lower_ci, upper_ci) {
+        rendered.push_str(&format!(
+            " [{}, {}]",
+            format_metric(lower_ci),
+            format_metric(upper_ci)
+        ));
+    }
+    rendered.push_str(&suffix);
+    Some(rendered)
+}
+
 fn format_survey_metadata_result(icon: &str, parsed: &serde_json::Value) -> String {
     let dataset = parsed.get("dataset").and_then(serde_json::Value::as_object);
     let schema = parsed.get("schema").and_then(serde_json::Value::as_object);
@@ -6346,6 +6388,21 @@ fn format_processv50_run_result(icon: &str, parsed: &serde_json::Value) -> Strin
     if direct_count > 0 || indirect_count > 0 || moderated_index_count > 0 {
         lines.push(format!(
             "\x1b[2mEffects\x1b[0m direct {direct_count} · indirect {indirect_count} · moderated-index {moderated_index_count}"
+        ));
+    }
+
+    let key_effects = [
+        format_process_effect_preview(effect_summary, "direct", "direct"),
+        format_process_effect_preview(effect_summary, "indirect", "indirect"),
+        format_process_effect_preview(effect_summary, "moderatedMediationIndex", "moderated-index"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    if !key_effects.is_empty() {
+        lines.push(format!(
+            "\x1b[2mKey effects\x1b[0m {}",
+            key_effects.join(" · ")
         ));
     }
 
@@ -8281,10 +8338,19 @@ mod tests {
                     ],
                     "indirect": [
                         {
+                            "label": "coping",
                             "effect": 0.12,
                             "standardError": 0.05,
                             "lowerCI": 0.03,
                             "upperCI": 0.22
+                        }
+                    ],
+                    "moderatedMediationIndex": [
+                        {
+                            "label": "support",
+                            "effect": 0.08,
+                            "lowerCI": 0.01,
+                            "upperCI": 0.16
                         }
                     ]
                 }
@@ -8310,7 +8376,11 @@ mod tests {
         assert!(rendered.contains("outcomes burnout"));
         assert!(rendered.contains("modelSummary, directEffect, indirectEffects"));
         assert!(rendered.contains("Effects"));
-        assert!(rendered.contains("direct 1 · indirect 1 · moderated-index 0"));
+        assert!(rendered.contains("direct 1 · indirect 1 · moderated-index 1"));
+        assert!(rendered.contains("Key effects"));
+        assert!(rendered.contains("direct 0.300 [0.100, 0.500]"));
+        assert!(rendered.contains("indirect(coping) 0.120 [0.030, 0.220]"));
+        assert!(rendered.contains("moderated-index(support) 0.080 [0.010, 0.160]"));
         assert!(rendered.contains("No moderator variable was provided"));
     }
 
