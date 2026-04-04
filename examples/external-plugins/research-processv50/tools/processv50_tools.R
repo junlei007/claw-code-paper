@@ -280,14 +280,14 @@ format_label_scalar <- function(value) {
   trimws(as.character(value))
 }
 
-extract_effect_row_label <- function(row) {
-  explicit <- first_present_value(row, c(".row"))
-  if (!is.null(explicit)) {
-    return(format_label_scalar(explicit))
+extract_effect_row_components <- function(row) {
+  if (!is.list(row) || !length(row)) {
+    return(list())
   }
 
-  if (!is.list(row) || !length(row)) {
-    return(NULL)
+  explicit <- first_present_value(row, c(".row"))
+  if (!is.null(explicit)) {
+    return(list(.row = format_label_scalar(explicit)))
   }
 
   normalized_names <- vapply(names(row), normalize_column_key, character(1))
@@ -297,15 +297,33 @@ extract_effect_row_label <- function(row) {
   )
   candidate_indices <- which(!normalized_names %in% ignore_keys)
   if (!length(candidate_indices)) {
-    return(NULL)
+    return(list())
   }
 
-  candidate_name <- names(row)[candidate_indices[[1]]]
-  candidate_value <- row[[candidate_indices[[1]]]]
-  if (is.null(candidate_value)) {
+  components <- list()
+  for (index in candidate_indices) {
+    candidate_name <- names(row)[[index]]
+    candidate_value <- row[[index]]
+    if (is.null(candidate_value)) {
+      next
+    }
+    components[[candidate_name]] <- format_label_scalar(candidate_value)
+  }
+  components
+}
+
+extract_effect_row_label <- function(row) {
+  components <- extract_effect_row_components(row)
+  if (!length(components)) {
     return(NULL)
   }
-  sprintf("%s=%s", candidate_name, format_label_scalar(candidate_value))
+  if (!is.null(components$.row)) {
+    return(components$.row)
+  }
+  paste(
+    vapply(names(components), function(name) sprintf("%s=%s", name, components[[name]]), character(1)),
+    collapse = " · "
+  )
 }
 
 normalize_effect_rows <- function(section) {
@@ -508,7 +526,9 @@ normalize_conditional_effect_table_rows <- function(section) {
     return(list())
   }
   unname(lapply(section$rows, function(row) {
+    label_components <- extract_effect_row_components(row)
     normalized <- list(
+      label = extract_effect_row_label(row),
       moderatorValue = first_present_value(row, c(".row", "Moderator", "W", "Z")),
       effect = first_present_value(row, c("Effect")),
       standardError = first_present_value(row, c("se", "SE")),
@@ -518,10 +538,13 @@ normalize_conditional_effect_table_rows <- function(section) {
       upperCI = first_present_value(row, c("ULCI", "Upper"))
     )
     if (is.null(normalized$moderatorValue)) {
-      label <- extract_effect_row_label(row)
+      label <- normalized$label
       if (!is.null(label) && grepl("=", label, fixed = TRUE)) {
         normalized$moderatorValue <- sub("^.*?=", "", label)
       }
+    }
+    if (length(label_components) && is.null(label_components$.row)) {
+      normalized$moderators <- label_components
     }
     Filter(Negate(is.null), normalized)
   }))
@@ -676,6 +699,16 @@ extract_visualization_plot_data <- function(report_parse, x_name, y_name, w_name
     }
     selected <- data[, c(x_column, y_column, w_column), drop = FALSE]
     names(selected) <- c("x", "y", "moderator")
+    extra_columns <- setdiff(names(data), c(x_column, y_column, w_column))
+    selected$moderatorLabel <- vapply(seq_len(nrow(data)), function(index) {
+      parts <- c(sprintf("%s=%s", w_name, format_label_scalar(data[[w_column]][[index]])))
+      if (length(extra_columns)) {
+        parts <- c(parts, vapply(extra_columns, function(column) {
+          sprintf("%s=%s", column, format_label_scalar(data[[column]][[index]]))
+        }, character(1)))
+      }
+      paste(parts, collapse = " · ")
+    }, character(1))
     suppressWarnings({
       selected$x <- as.numeric(selected$x)
       selected$y <- as.numeric(selected$y)
@@ -697,12 +730,15 @@ extract_jn_plot_data <- function(report_parse, w_name) {
   }
 
   conditional_effects <- do.call(rbind, lapply(johnson_neyman$conditionalEffects, function(row) {
-    columns <- c("moderatorValue", "effect", "standardError", "statistic", "pValue", "lowerCI", "upperCI")
+    columns <- c("label", "moderators", "moderatorValue", "effect", "standardError", "statistic", "pValue", "lowerCI", "upperCI")
     values <- unlist(lapply(columns, function(column) {
       value <- row[[column]]
+      if (identical(column, "moderators")) {
+        return(list(value))
+      }
       if (is.null(value)) NA else value
-    }), use.names = FALSE)
-    stats::setNames(as.list(values), columns)
+    }), recursive = FALSE, use.names = FALSE)
+    stats::setNames(values, columns)
   }))
   conditional_effects <- as.data.frame(conditional_effects, stringsAsFactors = FALSE, check.names = FALSE)
   if (!nrow(conditional_effects)) {
@@ -714,6 +750,18 @@ extract_jn_plot_data <- function(report_parse, w_name) {
     conditional_effects$lowerCI <- as.numeric(conditional_effects$lowerCI)
     conditional_effects$upperCI <- as.numeric(conditional_effects$upperCI)
   })
+  if ("moderators" %in% names(conditional_effects)) {
+    conditional_effects$moderatorValue <- ifelse(
+      is.na(conditional_effects$moderatorValue),
+      vapply(conditional_effects$moderators, function(value) {
+        if (!is.list(value) || is.null(value[[w_name]])) {
+          return(NA_real_)
+        }
+        suppressWarnings(as.numeric(value[[w_name]]))
+      }, numeric(1)),
+      conditional_effects$moderatorValue
+    )
+  }
   conditional_effects <- conditional_effects[
     stats::complete.cases(conditional_effects[, c("moderatorValue", "effect"), drop = FALSE]),
     ,
@@ -824,6 +872,8 @@ generate_moderation_plot_bundle <- function(dataset, report_parse, model, x_name
   conf_level <- if (is.finite(conf_level)) conf_level else 95
   visualization_data <- extract_visualization_plot_data(report_parse, x_name, y_name, w_name)
   jn_data <- extract_jn_plot_data(report_parse, w_name)
+  decomposition_source <- if (!is.null(visualization_data)) "process-report" else "lm-fallback"
+  jn_source <- if (!is.null(jn_data)) "process-report" else "lm-fallback"
 
   required_columns <- unique(c(x_name, y_name, w_name, covariates))
   missing_columns <- required_columns[!required_columns %in% names(dataset)]
@@ -859,12 +909,7 @@ generate_moderation_plot_bundle <- function(dataset, report_parse, model, x_name
     )
   }
 
-  plot_source <- "process-report"
-  if (is.null(visualization_data) || is.null(jn_data)) {
-    plot_source <- "lm-fallback"
-  }
-
-  if ((is.null(visualization_data) || is.null(jn_data)) && !fallback_available) {
+  if (is.null(visualization_data) && is.null(jn_data) && !fallback_available) {
     warning_message <- if (!is.null(fallback_warning)) {
       fallback_warning
     } else {
@@ -880,7 +925,7 @@ generate_moderation_plot_bundle <- function(dataset, report_parse, model, x_name
     ))
   }
 
-  if (is.null(visualization_data) && fallback_available) {
+  if ((is.null(visualization_data) || is.null(jn_data)) && fallback_available) {
     fit <- tryCatch(
       stats::lm(build_moderation_formula(y_name, x_name, w_name, covariates), data = analysis_data),
       error = function(err) err
@@ -927,37 +972,40 @@ generate_moderation_plot_bundle <- function(dataset, report_parse, model, x_name
       ))
     }
 
-    moderator_sd <- stats::sd(analysis_data[[w_name]], na.rm = TRUE)
-    moderator_mean <- mean(analysis_data[[w_name]], na.rm = TRUE)
-    moderator_levels <- data.frame(
-      level = c("Low (-1 SD)", "Mean", "High (+1 SD)"),
-      moderatorValue = c(moderator_mean - moderator_sd, moderator_mean, moderator_mean + moderator_sd),
-      stringsAsFactors = FALSE
-    )
-    x_grid <- seq(min(analysis_data[[x_name]], na.rm = TRUE), max(analysis_data[[x_name]], na.rm = TRUE), length.out = 100)
-    visualization_data <- do.call(rbind, lapply(seq_len(nrow(moderator_levels)), function(index) {
-      row <- moderator_levels[index, , drop = FALSE]
-      block <- data.frame(
-        x = x_grid,
-        moderator = rep(row$moderatorValue, length(x_grid)),
-        moderatorLabel = rep(row$level, length(x_grid)),
-        stringsAsFactors = FALSE,
-        check.names = FALSE
+    if (is.null(visualization_data)) {
+      moderator_sd <- stats::sd(analysis_data[[w_name]], na.rm = TRUE)
+      moderator_mean <- mean(analysis_data[[w_name]], na.rm = TRUE)
+      moderator_levels <- data.frame(
+        level = c("Low (-1 SD)", "Mean", "High (+1 SD)"),
+        moderatorValue = c(moderator_mean - moderator_sd, moderator_mean, moderator_mean + moderator_sd),
+        stringsAsFactors = FALSE
       )
-      newdata <- data.frame(
-        x_grid = x_grid,
-        moderator_grid = rep(row$moderatorValue, length(x_grid)),
-        stringsAsFactors = FALSE,
-        check.names = FALSE
-      )
-      names(newdata)[names(newdata) == "x_grid"] <- x_name
-      names(newdata)[names(newdata) == "moderator_grid"] <- w_name
-      for (covariate in covariates) {
-        newdata[[covariate]] <- rep(mean(analysis_data[[covariate]], na.rm = TRUE), length(x_grid))
-      }
-      block$y <- as.numeric(stats::predict(fit, newdata = newdata))
-      block
-    }))
+      x_grid <- seq(min(analysis_data[[x_name]], na.rm = TRUE), max(analysis_data[[x_name]], na.rm = TRUE), length.out = 100)
+      visualization_data <- do.call(rbind, lapply(seq_len(nrow(moderator_levels)), function(index) {
+        row <- moderator_levels[index, , drop = FALSE]
+        block <- data.frame(
+          x = x_grid,
+          moderator = rep(row$moderatorValue, length(x_grid)),
+          moderatorLabel = rep(row$level, length(x_grid)),
+          stringsAsFactors = FALSE,
+          check.names = FALSE
+        )
+        newdata <- data.frame(
+          x_grid = x_grid,
+          moderator_grid = rep(row$moderatorValue, length(x_grid)),
+          stringsAsFactors = FALSE,
+          check.names = FALSE
+        )
+        names(newdata)[names(newdata) == "x_grid"] <- x_name
+        names(newdata)[names(newdata) == "moderator_grid"] <- w_name
+        for (covariate in covariates) {
+          newdata[[covariate]] <- rep(mean(analysis_data[[covariate]], na.rm = TRUE), length(x_grid))
+        }
+        block$y <- as.numeric(stats::predict(fit, newdata = newdata))
+        block
+      }))
+      decomposition_source <- "lm-fallback"
+    }
 
     if (is.null(jn_data)) {
       alpha <- (100 - conf_level) / 100
@@ -992,15 +1040,16 @@ generate_moderation_plot_bundle <- function(dataset, report_parse, model, x_name
         moderator = w_name,
         significancePattern = significance_pattern
       )
+      jn_source <- "lm-fallback"
     }
   }
 
-  if (is.null(visualization_data) || !nrow(visualization_data) || is.null(jn_data) || is.null(jn_data$grid) || !nrow(jn_data$grid)) {
+  if (is.null(visualization_data) || !nrow(visualization_data)) {
     return(list(
       artifacts = list(),
       plots = NULL,
       warnings = sprintf(
-        "Skipped moderation/JN plots because PROCESS-native plot data were incomplete and the fallback path could not fully reconstruct them for model %s.",
+        "Skipped moderation decomposition/JN plots because PROCESS-native plot data were incomplete and the fallback path could not fully reconstruct them for model %s.",
         model
       )
     ))
@@ -1019,10 +1068,7 @@ generate_moderation_plot_bundle <- function(dataset, report_parse, model, x_name
     }
   }
 
-  visualization_data <- visualization_data[order(visualization_data$moderator, visualization_data$x), , drop = FALSE]
-  jn_grid <- jn_data$grid
-  jn_bounds <- jn_data$bounds
-  significance_pattern <- jn_data$significancePattern
+  visualization_data <- visualization_data[order(visualization_data$moderatorLabel, visualization_data$x), , drop = FALSE]
 
   decomposition_path <- derive_suffixed_artifact_path(output_path, "-moderation-decomposition", ".png")
   jn_path <- derive_suffixed_artifact_path(output_path, "-johnson-neyman", ".png")
@@ -1041,52 +1087,24 @@ generate_moderation_plot_bundle <- function(dataset, report_parse, model, x_name
   )
   moderator_levels <- unique(visualization_data[, c("moderator", "moderatorLabel"), drop = FALSE])
   for (index in seq_len(nrow(moderator_levels))) {
-    block <- visualization_data[visualization_data$moderator == moderator_levels$moderator[[index]], , drop = FALSE]
+    block <- visualization_data[visualization_data$moderatorLabel == moderator_levels$moderatorLabel[[index]], , drop = FALSE]
     graphics::lines(block$x, block$y, col = palette[[(index - 1) %% length(palette) + 1]], lwd = 3)
   }
   graphics::legend(
     "topleft",
     legend = sprintf("%s = %s", moderator_levels$moderatorLabel, format(round(moderator_levels$moderator, 3), nsmall = 3)),
-    col = palette[seq_len(nrow(moderator_levels))],
+    col = vapply(seq_len(nrow(moderator_levels)), function(index) palette[[(index - 1) %% length(palette) + 1]], character(1)),
     lwd = 3,
     bty = "n",
     cex = 0.9
   )
   grDevices::dev.off()
 
-  grDevices::png(jn_path, width = 1400, height = 1000, res = 160)
-  graphics::par(mar = c(5, 5, 4, 2) + 0.1)
-  plot(
-    jn_grid$moderatorValue,
-    jn_grid$effect,
-    type = "n",
-    ylim = range(c(jn_grid$lowerCI, jn_grid$upperCI, 0), finite = TRUE),
-    xlab = w_name,
-    ylab = sprintf("Conditional effect of %s on %s", x_name, y_name),
-    main = sprintf("Johnson-Neyman plot: %s moderated by %s", x_name, w_name)
-  )
-  if ("lowerCI" %in% names(jn_grid) && "upperCI" %in% names(jn_grid) && all(is.finite(jn_grid$lowerCI)) && all(is.finite(jn_grid$upperCI))) {
-    graphics::polygon(
-      c(jn_grid$moderatorValue, rev(jn_grid$moderatorValue)),
-      c(jn_grid$lowerCI, rev(jn_grid$upperCI)),
-      border = NA,
-      col = grDevices::adjustcolor("#3B82F6", alpha.f = 0.2)
-    )
-  }
-  graphics::lines(jn_grid$moderatorValue, jn_grid$effect, col = "#1D4ED8", lwd = 3)
-  graphics::abline(h = 0, col = "#6B7280", lty = 2)
-  if (length(jn_bounds)) {
-    for (bound in jn_bounds) {
-      graphics::abline(v = bound, col = "#DC2626", lty = 3, lwd = 2)
-    }
-  }
-  grDevices::dev.off()
-
-  plot_metadata <- build_plot_metadata_payload(list(
+  plot_entries <- list(
     moderationDecomposition = list(
       status = "created",
-      source = plot_source,
-      method = if (identical(plot_source, "process-report")) "process-visualization-data" else "lm-simple-slopes",
+      source = decomposition_source,
+      method = if (identical(decomposition_source, "process-report")) "process-visualization-data" else "lm-simple-slopes",
       x = x_name,
       y = y_name,
       moderator = w_name,
@@ -1097,11 +1115,50 @@ generate_moderation_plot_bundle <- function(dataset, report_parse, model, x_name
         )
       })),
       artifact = artifact_entry(decomposition_path, "image/png")
-    ),
-    johnsonNeyman = list(
+    )
+  )
+
+  warnings <- character()
+  artifacts <- list(
+    moderationDecompositionPlot = artifact_entry(decomposition_path, "image/png")
+  )
+
+  if (!is.null(jn_data) && !is.null(jn_data$grid) && nrow(jn_data$grid)) {
+    jn_grid <- jn_data$grid
+    jn_bounds <- jn_data$bounds
+    significance_pattern <- jn_data$significancePattern
+    grDevices::png(jn_path, width = 1400, height = 1000, res = 160)
+    graphics::par(mar = c(5, 5, 4, 2) + 0.1)
+    plot(
+      jn_grid$moderatorValue,
+      jn_grid$effect,
+      type = "n",
+      ylim = range(c(jn_grid$lowerCI, jn_grid$upperCI, 0), finite = TRUE),
+      xlab = w_name,
+      ylab = sprintf("Conditional effect of %s on %s", x_name, y_name),
+      main = sprintf("Johnson-Neyman plot: %s moderated by %s", x_name, w_name)
+    )
+    if ("lowerCI" %in% names(jn_grid) && "upperCI" %in% names(jn_grid) && all(is.finite(jn_grid$lowerCI)) && all(is.finite(jn_grid$upperCI))) {
+      graphics::polygon(
+        c(jn_grid$moderatorValue, rev(jn_grid$moderatorValue)),
+        c(jn_grid$lowerCI, rev(jn_grid$upperCI)),
+        border = NA,
+        col = grDevices::adjustcolor("#3B82F6", alpha.f = 0.2)
+      )
+    }
+    graphics::lines(jn_grid$moderatorValue, jn_grid$effect, col = "#1D4ED8", lwd = 3)
+    graphics::abline(h = 0, col = "#6B7280", lty = 2)
+    if (length(jn_bounds)) {
+      for (bound in jn_bounds) {
+        graphics::abline(v = bound, col = "#DC2626", lty = 3, lwd = 2)
+      }
+    }
+    grDevices::dev.off()
+    artifacts$johnsonNeymanPlot <- artifact_entry(jn_path, "image/png")
+    plot_entries$johnsonNeyman <- list(
       status = "created",
-      source = plot_source,
-      method = if (identical(plot_source, "process-report")) "process-johnson-neyman" else "lm-conditional-slope",
+      source = jn_source,
+      method = if (identical(jn_source, "process-report")) "process-johnson-neyman" else "lm-conditional-slope",
       x = x_name,
       y = y_name,
       moderator = w_name,
@@ -1110,17 +1167,21 @@ generate_moderation_plot_bundle <- function(dataset, report_parse, model, x_name
       bounds = unname(as.list(jn_bounds)),
       artifact = artifact_entry(jn_path, "image/png")
     )
-  ))
+  } else {
+    warnings <- c(
+      warnings,
+      sprintf("Skipped Johnson-Neyman plot for model %s because neither PROCESS-native nor fallback JN data were available.", model)
+    )
+  }
+
+  plot_metadata <- build_plot_metadata_payload(plot_entries)
   write_json_artifact(plot_metadata_path, plot_metadata)
+  artifacts$plotMetadataJson <- artifact_entry(plot_metadata_path, "json")
 
   list(
-    artifacts = list(
-      moderationDecompositionPlot = artifact_entry(decomposition_path, "image/png"),
-      johnsonNeymanPlot = artifact_entry(jn_path, "image/png"),
-      plotMetadataJson = artifact_entry(plot_metadata_path, "json")
-    ),
+    artifacts = artifacts,
     plots = plot_metadata$plots,
-    warnings = character()
+    warnings = warnings
   )
 }
 

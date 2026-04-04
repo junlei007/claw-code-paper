@@ -104,6 +104,8 @@ env CLAW_TOOL_NAME=processv50_run \
     Rscript examples/external-plugins/research-processv50/tools/processv50_tools.R
 ```
 
+For a more complex conditional-process shape with combined labels such as `support=... · climate=...`, use `fixtures/mock_process_complex_condition_sections.R`.
+
 When `outputPath` is set to something like `.claw/artifacts/processv50-report.txt`, the wrapper now also tries to emit:
 
 - a sibling JSON sidecar such as `.claw/artifacts/processv50-report.json`
