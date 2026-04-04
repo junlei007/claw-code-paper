@@ -236,6 +236,83 @@ parse_table_block <- function(lines) {
   list(rawLines = unname(lines))
 }
 
+normalize_column_key <- function(name) {
+  tolower(gsub("[^A-Za-z0-9]+", "", as.character(name)))
+}
+
+first_present_value <- function(row, keys) {
+  if (!is.list(row) || !length(row)) {
+    return(NULL)
+  }
+  normalized <- vapply(names(row), normalize_column_key, character(1))
+  for (key in keys) {
+    match_index <- match(normalize_column_key(key), normalized)
+    if (!is.na(match_index)) {
+      value <- row[[match_index]]
+      if (!is.null(value)) {
+        return(value)
+      }
+    }
+  }
+  NULL
+}
+
+normalize_effect_rows <- function(section) {
+  if (!is.list(section) || is.null(section$rows) || !length(section$rows)) {
+    return(list())
+  }
+  unname(lapply(section$rows, function(row) {
+    normalized <- list(
+      label = first_present_value(row, c(".row")),
+      effect = first_present_value(row, c("Effect", "Index", "Contrast")),
+      standardError = first_present_value(row, c("se", "SE", "BootSE")),
+      statistic = first_present_value(row, c("t", "Z", "Chi-sq")),
+      pValue = first_present_value(row, c("p")),
+      lowerCI = first_present_value(row, c("LLCI", "BootLLCI", "Lower")),
+      upperCI = first_present_value(row, c("ULCI", "BootULCI", "Upper"))
+    )
+    Filter(Negate(is.null), normalized)
+  }))
+}
+
+build_effect_summary <- function(sections) {
+  summary <- list()
+  mappings <- list(
+    direct = "directEffect",
+    conditionalDirect = "conditionalDirectEffects",
+    indirect = "indirectEffects",
+    conditionalIndirect = "conditionalIndirectEffects",
+    conditionalAndUnconditionalIndirect = "conditionalAndUnconditionalIndirectEffects",
+    moderatedMediationIndex = "moderatedMediationIndex",
+    partialModeratedMediationIndices = "partialModeratedMediationIndices",
+    moderatedModeratedMediationIndices = "moderatedModeratedMediationIndices",
+    conditionalModeratedMediationIndices = "conditionalModeratedMediationIndices"
+  )
+
+  for (name in names(mappings)) {
+    section <- sections[[mappings[[name]]]]
+    if (is.null(section)) {
+      next
+    }
+    if (is.list(section) && !is.null(section$rows)) {
+      normalized <- normalize_effect_rows(section)
+      if (length(normalized)) {
+        summary[[name]] <- normalized
+      }
+      next
+    }
+    if (is.list(section) && length(section) && is.null(names(section[[1]]))) {
+      normalized_blocks <- unname(lapply(section, normalize_effect_rows))
+      normalized_blocks <- Filter(length, normalized_blocks)
+      if (length(normalized_blocks)) {
+        summary[[name]] <- normalized_blocks
+      }
+    }
+  }
+
+  summary
+}
+
 extract_section_block <- function(lines, start_index, headings) {
   captured <- character()
   if (start_index >= length(lines)) {
@@ -294,7 +371,8 @@ parse_report_text <- function(report_text) {
     outcomes = extract_outcomes(lines),
     keyValueFields = parse_key_value_fields(lines),
     detectedSections = unname(names(sections)),
-    sections = sections
+    sections = sections,
+    effectSummary = build_effect_summary(sections)
   )
 }
 

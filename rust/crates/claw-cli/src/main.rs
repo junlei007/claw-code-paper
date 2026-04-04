@@ -6191,6 +6191,9 @@ fn format_processv50_run_result(icon: &str, parsed: &serde_json::Value) -> Strin
     let report_parse = parsed
         .get("reportParse")
         .and_then(serde_json::Value::as_object);
+    let effect_summary = report_parse
+        .and_then(|value| value.get("effectSummary"))
+        .and_then(serde_json::Value::as_object);
 
     let rows = dataset
         .and_then(|value| value.get("rows"))
@@ -6313,6 +6316,24 @@ fn format_processv50_run_result(icon: &str, parsed: &serde_json::Value) -> Strin
         };
         lines.push(format!(
             "\x1b[2mStructured\x1b[0m outcomes {outcome_summary} · sections {section_summary}"
+        ));
+    }
+
+    let direct_count = effect_summary
+        .and_then(|value| value.get("direct"))
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    let indirect_count = effect_summary
+        .and_then(|value| value.get("indirect"))
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    let moderated_index_count = effect_summary
+        .and_then(|value| value.get("moderatedMediationIndex"))
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    if direct_count > 0 || indirect_count > 0 || moderated_index_count > 0 {
+        lines.push(format!(
+            "\x1b[2mEffects\x1b[0m direct {direct_count} · indirect {indirect_count} · moderated-index {moderated_index_count}"
         ));
     }
 
@@ -8232,7 +8253,26 @@ mod tests {
             },
             "reportParse": {
                 "outcomes": ["burnout"],
-                "detectedSections": ["modelSummary", "directEffect", "indirectEffects"]
+                "detectedSections": ["modelSummary", "directEffect", "indirectEffects"],
+                "effectSummary": {
+                    "direct": [
+                        {
+                            "effect": 0.30,
+                            "standardError": 0.10,
+                            "pValue": 0.003,
+                            "lowerCI": 0.10,
+                            "upperCI": 0.50
+                        }
+                    ],
+                    "indirect": [
+                        {
+                            "effect": 0.12,
+                            "standardError": 0.05,
+                            "lowerCI": 0.03,
+                            "upperCI": 0.22
+                        }
+                    ]
+                }
             },
             "warnings": [
                 "No moderator variable was provided even though the selected model is often used for moderation-style workflows."
@@ -8253,6 +8293,8 @@ mod tests {
         assert!(rendered.contains("Structured"));
         assert!(rendered.contains("outcomes burnout"));
         assert!(rendered.contains("modelSummary, directEffect, indirectEffects"));
+        assert!(rendered.contains("Effects"));
+        assert!(rendered.contains("direct 1 · indirect 1 · moderated-index 0"));
         assert!(rendered.contains("No moderator variable was provided"));
     }
 
