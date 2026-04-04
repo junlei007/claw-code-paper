@@ -73,9 +73,19 @@ Allowed verdict values:
   },
   "overallVerdict": "pass",
   "overallScore": 88,
-  "requiredFixes": []
+  "requiredFixes": [],
+  "hardGateFailures": [],
+  "unresolvedIssues": []
 }
 ```
+
+Recommended top-level delivery fields:
+
+- `requiredFixes`: all issues collected before any targeted revision pass
+- `hardGateFailures`: gate-level failures still blocking final delivery
+- `unresolvedIssues`: issue strings that remain unresolved after bounded revision
+- `delivery.status`: `ready` or `draft_under_review`
+- `delivery.blockingReasons`: concrete reasons the report should not yet be treated as final
 
 ---
 
@@ -97,7 +107,9 @@ This gate should become as deterministic as possible.
 {
   "title": "CFA fit summary table",
   "artifactPath": ".claw/artifacts/cfa-fit-table.md",
+  "caption": "Table 1. CFA fit indices for the final single-factor model.",
   "sourceMetrics": ["cfi", "tli", "rmsea", "srmr"],
+  "sourceColumns": ["model", "cfi", "tli", "rmsea", "srmr"],
   "expectedValues": {
     "cfi": 0.973,
     "tli": 0.961
@@ -108,7 +120,9 @@ This gate should become as deterministic as possible.
 Minimum useful fields:
 
 - `artifactPath`
+- `caption`
 - `sourceMetrics`
+- `sourceColumns`
 
 Optional but high-value field:
 
@@ -117,7 +131,9 @@ Optional but high-value field:
 The deterministic gate should at least verify:
 
 - artifact file exists
+- caption is present for manuscript reuse / provenance
 - each `sourceMetric` is present in structured results
+- `sourceColumns` are declared so the visual can be traced back to analysis inputs
 - each declared `expectedValue` matches the structured result within a small tolerance
 
 ### 2. Structure quality
@@ -161,5 +177,6 @@ A report should not be treated as the final user-facing output by default unless
 - all hard review gates pass
 - critical warnings are surfaced
 - the review artifact is available for inspection
+- the delivery decision is `ready`
 
 Until then, the report is a **draft under review**, not a final polished deliverable.

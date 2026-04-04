@@ -1046,6 +1046,13 @@ def figure_accuracy_review(report_input: dict[str, Any]) -> dict[str, Any]:
         else:
             issues.append(f"{title}: artifactPath/path is missing.")
 
+        caption = artifact.get("caption") if isinstance(artifact.get("caption"), str) else None
+        total_checks += 1
+        if caption and caption.strip():
+            passed_checks += 1
+        else:
+            issues.append(f"{title}: caption should be declared for provenance and manuscript reuse.")
+
         source_metrics = artifact.get("sourceMetrics") if isinstance(artifact.get("sourceMetrics"), list) else []
         total_checks += 1
         if source_metrics:
@@ -1060,6 +1067,13 @@ def figure_accuracy_review(report_input: dict[str, Any]) -> dict[str, Any]:
                 passed_checks += 1
         else:
             issues.append(f"{title}: sourceMetrics should be declared for deterministic consistency review.")
+
+        source_columns = artifact.get("sourceColumns") if isinstance(artifact.get("sourceColumns"), list) else []
+        total_checks += 1
+        if source_columns:
+            passed_checks += 1
+        else:
+            issues.append(f"{title}: sourceColumns should be declared to trace the visual back to analysis inputs.")
 
         expected_values = artifact.get("expectedValues") if isinstance(artifact.get("expectedValues"), dict) else {}
         if expected_values:
@@ -1092,18 +1106,118 @@ def values_match_with_tolerance(actual: Any, expected: Any, tolerance: float = 0
         return str(actual).strip() == str(expected).strip()
 
 
+MAX_REPORT_REVISION_ITERATIONS = 2
+MIN_REPORT_DELIVERY_SCORE = 85
+
+
+def overall_review_verdict(
+    figure_review: dict[str, Any],
+    structure: dict[str, Any],
+    narrative: dict[str, Any],
+) -> str:
+    hard_gate_verdicts = [
+        figure_review.get("verdict"),
+        structure.get("verdict"),
+        narrative.get("verdict"),
+    ]
+    if any(verdict in {"revise", "fail"} for verdict in hard_gate_verdicts):
+        return "revise"
+    return "pass"
+
+
+def revision_fix_candidates(review: dict[str, Any]) -> list[str]:
+    dimensions = review.get("dimensions") if isinstance(review.get("dimensions"), dict) else {}
+    fixes: list[str] = []
+    for key in ("structureQuality", "narrativeQuality"):
+        dimension = dimensions.get(key)
+        if isinstance(dimension, dict) and dimension.get("verdict") in {"revise", "fail"}:
+            issues = dimension.get("issues")
+            if isinstance(issues, list):
+                fixes.extend(str(item) for item in issues if str(item).strip())
+    return fixes
+
+
+def review_failure_summary(
+    figure_review: dict[str, Any],
+    structure: dict[str, Any],
+    narrative: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    failures: list[dict[str, Any]] = []
+    unresolved: list[str] = []
+    for name, dimension in (
+        ("figureAccuracy", figure_review),
+        ("structureQuality", structure),
+        ("narrativeQuality", narrative),
+    ):
+        verdict = dimension.get("verdict")
+        issues = dimension.get("issues") if isinstance(dimension.get("issues"), list) else []
+        cleaned_issues = [str(item) for item in issues if str(item).strip()]
+        if verdict in {"revise", "fail"}:
+            failures.append(
+                {
+                    "dimension": name,
+                    "verdict": verdict,
+                    "issueCount": len(cleaned_issues),
+                }
+            )
+            unresolved.extend(cleaned_issues)
+    return failures, unresolved
+
+
+def build_delivery_decision(review: dict[str, Any]) -> dict[str, Any]:
+    hard_gate_failures = (
+        review.get("hardGateFailures") if isinstance(review.get("hardGateFailures"), list) else []
+    )
+    unresolved_issues = (
+        review.get("unresolvedIssues") if isinstance(review.get("unresolvedIssues"), list) else []
+    )
+    overall_verdict = review.get("overallVerdict")
+    overall_score = review.get("overallScore")
+
+    blocking_reasons: list[str] = []
+    if overall_verdict != "pass":
+        blocking_reasons.append("overall review verdict is not pass")
+    if hard_gate_failures:
+        blocking_reasons.append("one or more hard quality gates are still failing")
+    if unresolved_issues:
+        blocking_reasons.append("unresolved review issues remain after bounded revision")
+    if isinstance(overall_score, int) and overall_score < MIN_REPORT_DELIVERY_SCORE:
+        blocking_reasons.append(
+            f"overall review score {overall_score} is below delivery threshold {MIN_REPORT_DELIVERY_SCORE}"
+        )
+
+    ready = not blocking_reasons
+    status = "ready" if ready else "draft_under_review"
+    summary = (
+        "report passed all quality gates and is ready for user-facing delivery"
+        if ready
+        else "; ".join(blocking_reasons)
+    )
+    return {
+        "status": status,
+        "ready": ready,
+        "minimumScoreThreshold": MIN_REPORT_DELIVERY_SCORE,
+        "overallScore": overall_score,
+        "blockingReasons": blocking_reasons,
+        "summary": summary,
+    }
+
+
 def build_review_result(report_input: dict[str, Any], markdown: str) -> dict[str, Any]:
     figure_review = figure_accuracy_review(report_input)
     structure = structure_review(report_input, markdown)
     narrative = narrative_review(markdown)
 
     required_fixes = [*structure["issues"], *narrative["issues"], *figure_review["issues"]]
-    hard_fail = any(
-        verdict == "revise"
-        for verdict in (structure["verdict"], narrative["verdict"])
+    overall_verdict = overall_review_verdict(figure_review, structure, narrative)
+    hard_gate_failures, unresolved_issues = review_failure_summary(
+        figure_review, structure, narrative
     )
-    overall_verdict = "revise" if hard_fail else "pass"
-    scored = [item for item in (structure["score"], narrative["score"]) if isinstance(item, int)]
+    scored = [
+        item
+        for item in (figure_review["score"], structure["score"], narrative["score"])
+        if isinstance(item, int)
+    ]
     overall_score = round(sum(scored) / len(scored)) if scored else None
 
     return {
@@ -1116,6 +1230,8 @@ def build_review_result(report_input: dict[str, Any], markdown: str) -> dict[str
         "overallVerdict": overall_verdict,
         "overallScore": overall_score,
         "requiredFixes": required_fixes,
+        "hardGateFailures": hard_gate_failures,
+        "unresolvedIssues": unresolved_issues,
         "revision": {
             "attempted": False,
             "appliedFixes": [],
@@ -1173,11 +1289,23 @@ def render_report(
     }
     rendered = render_report_markdown(template, replacements)
     review = build_review_result(report_input, rendered)
-    if review["overallVerdict"] == "revise" and review["requiredFixes"]:
+    revision_attempted = False
+    revision_iterations = 0
+    applied_fixes: list[str] = []
+    current_sections = sections
+
+    while revision_iterations < MAX_REPORT_REVISION_ITERATIONS:
+        fix_candidates = revision_fix_candidates(review)
+        if not fix_candidates:
+            break
+
+        revision_attempted = True
+        revision_iterations += 1
+        applied_fixes.extend(fix for fix in fix_candidates if fix not in applied_fixes)
         revised_sections = revise_report_sections(
             report_input=report_input,
-            sections=sections,
-            required_fixes=review["requiredFixes"],
+            sections=current_sections,
+            required_fixes=fix_candidates,
         )
         revised_replacements = {
             "title": report_input["title"],
@@ -1190,19 +1318,28 @@ def render_report(
             "takeaway": revised_sections["takeaway"],
         }
         revised_markdown = render_report_markdown(template, revised_replacements)
-        revised_review = build_review_result(report_input, revised_markdown)
-        revised_review["revision"] = {
-            "attempted": True,
-            "appliedFixes": review["requiredFixes"],
-            "iterations": 1,
-        }
+        if revised_markdown == rendered:
+            break
+
+        current_sections = revised_sections
         rendered = revised_markdown
-        review = revised_review
+        review = build_review_result(report_input, rendered)
+
+        if review["overallVerdict"] == "pass":
+            break
+
+    review["revision"] = {
+        "attempted": revision_attempted,
+        "appliedFixes": applied_fixes,
+        "iterations": revision_iterations,
+    }
 
     output_path_raw = payload.get("outputPath")
     artifact = None
     review_artifact = None
     input_artifact = None
+    figures_artifact = None
+    tables_artifact = None
     if isinstance(output_path_raw, str) and output_path_raw.strip():
         output_path = resolve_output_path(output_path_raw, workspace_root)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1232,9 +1369,36 @@ def render_report(
             "workspaceRelativePath": workspace_relative_path(input_output),
             "kind": "json",
         }
+        figures = report_input.get("figures") if isinstance(report_input.get("figures"), list) else []
+        if figures:
+            figures_output = output_path.with_suffix(".figures.json")
+            figures_output.write_text(
+                json.dumps(figures, ensure_ascii=False, indent=2, default=json_default),
+                encoding="utf-8",
+            )
+            figures_artifact = {
+                "path": str(figures_output),
+                "workspaceRelativePath": workspace_relative_path(figures_output),
+                "kind": "json",
+                "count": len(figures),
+            }
+        tables = report_input.get("tables") if isinstance(report_input.get("tables"), list) else []
+        if tables:
+            tables_output = output_path.with_suffix(".tables.json")
+            tables_output.write_text(
+                json.dumps(tables, ensure_ascii=False, indent=2, default=json_default),
+                encoding="utf-8",
+            )
+            tables_artifact = {
+                "path": str(tables_output),
+                "workspaceRelativePath": workspace_relative_path(tables_output),
+                "kind": "json",
+                "count": len(tables),
+            }
 
     return {
         "status": "ok",
+        "delivery": build_delivery_decision(review),
         "report": {
             "title": report_input["title"],
             "template": str(template_path),
@@ -1245,6 +1409,16 @@ def render_report(
             "qualityProfile": quality_profile,
             "artifact": input_artifact,
             "data": report_input,
+        },
+        "visualArtifacts": {
+            "figures": {
+                "artifact": figures_artifact,
+                "items": report_input.get("figures", []),
+            },
+            "tables": {
+                "artifact": tables_artifact,
+                "items": report_input.get("tables", []),
+            },
         },
         "review": {
             **review,

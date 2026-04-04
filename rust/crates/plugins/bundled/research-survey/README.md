@@ -434,6 +434,7 @@ printf '%s' '{
 - 渲染后的 Markdown 文本
 - 可选 Markdown artifact
 - 可选 `report.input.json` / `report.review.json` 审查配套 artifact
+- 若提供 `figures` / `tables` metadata，还会额外落盘 `report.figures.json` / `report.tables.json`
 
 这个工具现在仍然是**报告草稿入口**，但已经开始输出配套的 review artifact，用于检查：
 
@@ -441,12 +442,23 @@ printf '%s' '{
 - 文字是否仍然带有 scaffold / tool-like 痕迹
 - 后续是否需要 targeted revision
 
-当前还会在 review 失败时自动做**一轮有界定向修订**，然后把修订后的结果重新写回最终 markdown 和 review artifact。
+返回值里现在还会包含 `delivery` 决策字段：
+
+- `ready`：可以作为当前轮的用户可交付报告
+- `draft_under_review`：仍需继续修订或补齐上游证据
+
+当前还会在 review 失败时自动做**最多两轮有界定向修订**，然后把修订后的结果重新写回最终 markdown 和 review artifact。
+
+如果 `figureAccuracy` / `structureQuality` / `narrativeQuality` 任一硬门失败，
+`overallVerdict` 都会保持为 `revise`；其中自动修订只会尝试修正文稿层问题，
+不会伪装“修好”缺失或不一致的 figure/table metadata。
 
 如果你同时提供 figure / table metadata，review 还会额外检查：
 
 - artifact 文件是否存在
+- caption 是否完整，便于 manuscript / provenance 复用
 - `sourceMetrics` 是否真的来自结构化结果
+- `sourceColumns` 是否声明了对应分析输入字段
 - `expectedValues` 是否和结构化结果一致（带小范围容差）
 
 ---

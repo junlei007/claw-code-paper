@@ -4990,6 +4990,10 @@ fn format_tool_result(name: &str, output: &str, theme_kind: ThemeKind, is_error:
         "glob_search" | "Glob" => format_glob_result(icon, &parsed),
         "grep_search" | "Grep" => format_grep_result(icon, &parsed),
         "TodoWrite" => format_todo_write_result(icon, &parsed),
+        "survey_metadata" => format_survey_metadata_result(icon, &parsed),
+        "survey_score" => format_survey_score_result(icon, &parsed),
+        "survey_psychometrics" => format_survey_psychometrics_result(icon, &parsed),
+        "survey_report" => format_survey_report_result(icon, &parsed),
         _ => format_generic_tool_result(icon, name, &parsed),
     };
     format_section_card(
@@ -5342,6 +5346,461 @@ fn format_grep_result(icon: &str, parsed: &serde_json::Value) -> String {
     } else {
         summary
     }
+}
+
+fn value_as_f64(value: Option<&serde_json::Value>) -> Option<f64> {
+    value.and_then(|value| match value {
+        serde_json::Value::Number(number) => number.as_f64(),
+        _ => None,
+    })
+}
+
+fn artifact_display_path(value: Option<&serde_json::Value>) -> Option<&str> {
+    value
+        .and_then(serde_json::Value::as_object)
+        .and_then(|artifact| {
+            artifact
+                .get("workspaceRelativePath")
+                .or_else(|| artifact.get("path"))
+        })
+        .and_then(serde_json::Value::as_str)
+}
+
+fn collect_string_values(value: Option<&serde_json::Value>, limit: usize) -> Vec<String> {
+    value
+        .and_then(serde_json::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .take(limit)
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn format_metric(value: f64) -> String {
+    if value.fract().abs() < f64::EPSILON {
+        format!("{value:.0}")
+    } else {
+        format!("{value:.3}")
+    }
+}
+
+fn format_survey_metadata_result(icon: &str, parsed: &serde_json::Value) -> String {
+    let dataset = parsed.get("dataset").and_then(serde_json::Value::as_object);
+    let schema = parsed.get("schema").and_then(serde_json::Value::as_object);
+    let missingness = parsed
+        .get("missingness")
+        .and_then(serde_json::Value::as_object);
+    let questionnaire = parsed
+        .get("questionnaire")
+        .and_then(serde_json::Value::as_object);
+
+    let format = dataset
+        .and_then(|value| value.get("format"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    let rows = dataset
+        .and_then(|value| value.get("rows"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let columns = dataset
+        .and_then(|value| value.get("columns"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+
+    let mut lines = vec![format!(
+        "{icon} \x1b[38;5;245msurvey_metadata\x1b[0m {format} dataset · {rows} rows · {columns} columns"
+    )];
+
+    if let Some(path) = dataset.and_then(|value| {
+        value
+            .get("workspaceRelativePath")
+            .or_else(|| value.get("path"))
+            .and_then(serde_json::Value::as_str)
+    }) {
+        lines.push(format!("\x1b[2mDataset\x1b[0m {path}"));
+    }
+
+    let numeric = schema
+        .and_then(|value| value.get("numericColumns"))
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    let categorical = schema
+        .and_then(|value| value.get("categoricalColumns"))
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    let datetime = schema
+        .and_then(|value| value.get("datetimeColumns"))
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    lines.push(format!(
+        "\x1b[2mSchema\x1b[0m numeric {numeric} · categorical {categorical} · datetime {datetime}"
+    ));
+
+    let missing_rate = value_as_f64(missingness.and_then(|value| value.get("missingRate")))
+        .map(|rate| format!("{:.1}%", rate * 100.0))
+        .unwrap_or_else(|| "not reported".to_string());
+    let missing_cells = missingness
+        .and_then(|value| value.get("missingCells"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let total_cells = missingness
+        .and_then(|value| value.get("totalCells"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    lines.push(format!(
+        "\x1b[2mMissingness\x1b[0m {missing_cells}/{total_cells} cells · {missing_rate}"
+    ));
+
+    let scale_count = questionnaire
+        .and_then(|value| value.get("scaleCount"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let declared_items = questionnaire
+        .and_then(|value| value.get("declaredItemCount"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let reverse_items = questionnaire
+        .and_then(|value| value.get("reverseItemCount"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    lines.push(format!(
+        "\x1b[2mQuestionnaire\x1b[0m scales {scale_count} · declared items {declared_items} · reverse items {reverse_items}"
+    ));
+
+    let unresolved = questionnaire
+        .and_then(|value| value.get("unresolvedReverseItems"))
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    let missing_declared = questionnaire
+        .and_then(|value| value.get("missingDeclaredItems"))
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+    if unresolved > 0 || missing_declared > 0 {
+        lines.push(format!(
+            "\x1b[38;5;214mCoverage\x1b[0m missing declared {missing_declared} · unresolved reverse {unresolved}"
+        ));
+    }
+
+    let warnings = collect_string_values(parsed.get("warnings"), 3);
+    if !warnings.is_empty() {
+        lines.push(format!("\x1b[38;5;203m{}\x1b[0m", warnings.join("\n")));
+    }
+
+    lines.join("\n")
+}
+
+fn format_survey_score_result(icon: &str, parsed: &serde_json::Value) -> String {
+    let dataset = parsed.get("dataset").and_then(serde_json::Value::as_object);
+    let scoring = parsed.get("scoring").and_then(serde_json::Value::as_object);
+    let scales = scoring
+        .and_then(|value| value.get("scales"))
+        .and_then(serde_json::Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+
+    let rows = dataset
+        .and_then(|value| value.get("rows"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let scale_count = scoring
+        .and_then(|value| value.get("scaleCount"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(scales.len() as u64);
+
+    let mut lines = vec![format!(
+        "{icon} \x1b[38;5;245msurvey_score\x1b[0m {scale_count} scale(s) · {rows} rows scored"
+    )];
+
+    if let Some(path) = dataset.and_then(|value| {
+        value
+            .get("workspaceRelativePath")
+            .or_else(|| value.get("path"))
+            .and_then(serde_json::Value::as_str)
+    }) {
+        lines.push(format!("\x1b[2mDataset\x1b[0m {path}"));
+    }
+
+    for scale in scales.iter().take(2) {
+        let name = scale
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("scale");
+        let output_column = scale
+            .get("outputColumn")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("score");
+        let method = scale
+            .get("method")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("mean");
+        let rows_scored = scale
+            .get("rowsScored")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
+        let reverse_count = scale
+            .get("reverseItemsApplied")
+            .and_then(serde_json::Value::as_array)
+            .map_or(0, Vec::len);
+        let summary = scale.get("summary").and_then(serde_json::Value::as_object);
+        let mean = value_as_f64(summary.and_then(|value| value.get("mean")))
+            .map(format_metric)
+            .unwrap_or_else(|| "not reported".to_string());
+        let std = value_as_f64(summary.and_then(|value| value.get("std")))
+            .map(format_metric)
+            .unwrap_or_else(|| "not reported".to_string());
+        lines.push(format!(
+            "\x1b[2mScale\x1b[0m {name} → {output_column} · {method} · n {rows_scored} · mean {mean} · sd {std} · reverse {reverse_count}"
+        ));
+    }
+
+    if let Some(path) = artifact_display_path(scoring.and_then(|value| value.get("artifact"))) {
+        lines.push(format!("\x1b[2mArtifact\x1b[0m {path}"));
+    }
+
+    let preview_columns =
+        collect_string_values(scoring.and_then(|value| value.get("previewColumns")), 6);
+    if !preview_columns.is_empty() {
+        lines.push(format!(
+            "\x1b[2mPreview\x1b[0m {}",
+            preview_columns.join(", ")
+        ));
+    }
+
+    let warnings = collect_string_values(parsed.get("warnings"), 3);
+    if !warnings.is_empty() {
+        lines.push(format!("\x1b[38;5;203m{}\x1b[0m", warnings.join("\n")));
+    }
+
+    lines.join("\n")
+}
+
+fn format_survey_psychometrics_result(icon: &str, parsed: &serde_json::Value) -> String {
+    let dataset = parsed.get("dataset").and_then(serde_json::Value::as_object);
+    let reliability = parsed
+        .get("reliability")
+        .and_then(serde_json::Value::as_object);
+    let validity = parsed
+        .get("validity")
+        .and_then(serde_json::Value::as_object);
+    let cfa = parsed.get("cfa").and_then(serde_json::Value::as_object);
+    let analysis_id = parsed
+        .get("analysisId")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("analysis");
+    let reliability_count = reliability.map_or(0, |value| value.len());
+    let analysis_items = dataset
+        .and_then(|value| value.get("analysisItems"))
+        .and_then(serde_json::Value::as_array)
+        .map_or(0, Vec::len);
+
+    let mut lines = vec![format!(
+        "{icon} \x1b[38;5;245msurvey_psychometrics\x1b[0m {analysis_id} · {analysis_items} item(s) · {reliability_count} reliability scale(s)"
+    )];
+
+    if let Some(path) = dataset.and_then(|value| {
+        value
+            .get("workspaceRelativePath")
+            .or_else(|| value.get("path"))
+            .and_then(serde_json::Value::as_str)
+    }) {
+        lines.push(format!("\x1b[2mDataset\x1b[0m {path}"));
+    }
+
+    if let Some(reliability) = reliability {
+        for (name, result) in reliability.iter().take(2) {
+            let complete_cases = result
+                .get("completeCases")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            let alpha = value_as_f64(result.get("alpha"))
+                .map(format_metric)
+                .unwrap_or_else(|| "not reported".to_string());
+            let omega = value_as_f64(result.get("omega"))
+                .map(format_metric)
+                .unwrap_or_else(|| "not reported".to_string());
+            lines.push(format!(
+                "\x1b[2mReliability\x1b[0m {name} · α {alpha} · ω {omega} · n {complete_cases}"
+            ));
+        }
+    }
+
+    if let Some(validity) = validity {
+        let kmo = value_as_f64(validity.get("kmo"))
+            .map(format_metric)
+            .unwrap_or_else(|| "not reported".to_string());
+        if let Some(bartlett) = validity
+            .get("bartlett")
+            .and_then(serde_json::Value::as_object)
+        {
+            let chi_square = value_as_f64(bartlett.get("chiSquare"))
+                .map(format_metric)
+                .unwrap_or_else(|| "not reported".to_string());
+            let df = bartlett
+                .get("df")
+                .and_then(serde_json::Value::as_i64)
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "?".to_string());
+            let p_value = value_as_f64(bartlett.get("pValue"))
+                .map(format_metric)
+                .unwrap_or_else(|| "not reported".to_string());
+            lines.push(format!(
+                "\x1b[2mValidity\x1b[0m KMO {kmo} · Bartlett χ² {chi_square} (df {df}, p {p_value})"
+            ));
+        } else {
+            lines.push(format!("\x1b[2mValidity\x1b[0m KMO {kmo}"));
+        }
+    }
+
+    if let Some(cfa) = cfa {
+        let converged = cfa
+            .get("converged")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let estimator = cfa
+            .get("estimator")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown");
+        let fit = cfa.get("fit").and_then(serde_json::Value::as_object);
+        let cfi = value_as_f64(fit.and_then(|value| value.get("cfi")))
+            .map(format_metric)
+            .unwrap_or_else(|| "not reported".to_string());
+        let rmsea = value_as_f64(fit.and_then(|value| value.get("rmsea")))
+            .map(format_metric)
+            .unwrap_or_else(|| "not reported".to_string());
+        lines.push(format!(
+            "\x1b[2mCFA\x1b[0m {} · estimator {estimator} · CFI {cfi} · RMSEA {rmsea}",
+            if converged {
+                "converged"
+            } else {
+                "not converged"
+            }
+        ));
+    } else {
+        lines.push("\x1b[2mCFA\x1b[0m skipped / not requested".to_string());
+    }
+
+    let warnings = collect_string_values(parsed.get("warnings"), 3);
+    if !warnings.is_empty() {
+        lines.push(format!("\x1b[38;5;203m{}\x1b[0m", warnings.join("\n")));
+    }
+
+    lines.join("\n")
+}
+
+fn format_survey_report_result(icon: &str, parsed: &serde_json::Value) -> String {
+    let delivery = parsed
+        .get("delivery")
+        .and_then(serde_json::Value::as_object);
+    let review = parsed.get("review").and_then(serde_json::Value::as_object);
+    let report = parsed.get("report").and_then(serde_json::Value::as_object);
+    let visuals = parsed
+        .get("visualArtifacts")
+        .and_then(serde_json::Value::as_object);
+
+    let delivery_status = delivery
+        .and_then(|value| value.get("status"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    let overall_verdict = review
+        .and_then(|value| value.get("overallVerdict"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    let overall_score = review
+        .and_then(|value| value.get("overallScore"))
+        .and_then(serde_json::Value::as_i64);
+
+    let mut lines = vec![match overall_score {
+        Some(score) => format!(
+            "{icon} \x1b[38;5;245msurvey_report\x1b[0m delivery {delivery_status} · review {overall_verdict} · score {score}"
+        ),
+        None => format!(
+            "{icon} \x1b[38;5;245msurvey_report\x1b[0m delivery {delivery_status} · review {overall_verdict}"
+        ),
+    }];
+
+    if let Some(title) = report
+        .and_then(|value| value.get("title"))
+        .and_then(serde_json::Value::as_str)
+    {
+        lines.push(format!("\x1b[2mTitle\x1b[0m {title}"));
+    }
+
+    if let Some(path) = report
+        .and_then(|value| value.get("artifact"))
+        .and_then(|value| {
+            value
+                .get("workspaceRelativePath")
+                .or_else(|| value.get("path"))
+        })
+        .and_then(serde_json::Value::as_str)
+    {
+        lines.push(format!("\x1b[2mReport\x1b[0m {path}"));
+    }
+
+    if let Some(path) = review
+        .and_then(|value| value.get("artifact"))
+        .and_then(|value| {
+            value
+                .get("workspaceRelativePath")
+                .or_else(|| value.get("path"))
+        })
+        .and_then(serde_json::Value::as_str)
+    {
+        lines.push(format!("\x1b[2mReview\x1b[0m {path}"));
+    }
+
+    let revision = review.and_then(|value| value.get("revision"));
+    if let Some(iterations) = revision
+        .and_then(|value| value.get("iterations"))
+        .and_then(serde_json::Value::as_u64)
+        .filter(|iterations| *iterations > 0)
+    {
+        lines.push(format!(
+            "\x1b[2mRevision\x1b[0m {iterations} iteration(s) applied"
+        ));
+    }
+
+    let figure_count = visuals
+        .and_then(|value| value.get("figures"))
+        .and_then(|value| value.get("artifact"))
+        .and_then(|value| value.get("count"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let table_count = visuals
+        .and_then(|value| value.get("tables"))
+        .and_then(|value| value.get("artifact"))
+        .and_then(|value| value.get("count"))
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    if figure_count > 0 || table_count > 0 {
+        lines.push(format!(
+            "\x1b[2mVisual metadata\x1b[0m figures {figure_count} · tables {table_count}"
+        ));
+    }
+
+    let blocking_reasons = delivery
+        .and_then(|value| value.get("blockingReasons"))
+        .and_then(serde_json::Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(serde_json::Value::as_str)
+                .take(3)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if !blocking_reasons.is_empty() {
+        lines.push(format!(
+            "\x1b[38;5;203m{}\x1b[0m",
+            blocking_reasons.join("\n")
+        ));
+    }
+
+    lines.join("\n")
 }
 
 fn format_generic_tool_result(icon: &str, name: &str, parsed: &serde_json::Value) -> String {
@@ -7240,6 +7699,235 @@ mod tests {
         assert!(!rendered.contains("raw 119"));
         assert!(rendered.contains("full result preserved in session"));
         assert!(output.contains("raw 119"));
+    }
+
+    #[test]
+    fn survey_report_rendering_surfaces_delivery_review_and_artifacts() {
+        let output = json!({
+            "delivery": {
+                "status": "ready",
+                "ready": true,
+                "blockingReasons": [],
+            },
+            "report": {
+                "title": "Mini Survey Results",
+                "artifact": {
+                    "workspaceRelativePath": "artifacts/report.md"
+                }
+            },
+            "review": {
+                "overallVerdict": "pass",
+                "overallScore": 94,
+                "artifact": {
+                    "workspaceRelativePath": "artifacts/report.review.json"
+                },
+                "revision": {
+                    "iterations": 1
+                }
+            },
+            "visualArtifacts": {
+                "figures": {
+                    "artifact": {
+                        "count": 1
+                    }
+                },
+                "tables": {
+                    "artifact": {
+                        "count": 2
+                    }
+                }
+            }
+        })
+        .to_string();
+
+        let rendered = format_tool_result("survey_report", &output, ThemeKind::Dark, false);
+
+        assert!(rendered.contains("survey_report"));
+        assert!(rendered.contains("delivery ready · review pass · score 94"));
+        assert!(rendered.contains("Mini Survey Results"));
+        assert!(rendered.contains("artifacts/report.md"));
+        assert!(rendered.contains("artifacts/report.review.json"));
+        assert!(rendered.contains("1 iteration(s) applied"));
+        assert!(rendered.contains("figures 1 · tables 2"));
+    }
+
+    #[test]
+    fn survey_report_rendering_surfaces_blocking_reasons_for_drafts_under_review() {
+        let output = json!({
+            "delivery": {
+                "status": "draft_under_review",
+                "ready": false,
+                "blockingReasons": [
+                    "one or more hard quality gates are still failing",
+                    "unresolved review issues remain after bounded revision"
+                ]
+            },
+            "review": {
+                "overallVerdict": "revise",
+                "hardGateFailures": [
+                    {"dimension": "figureAccuracy", "verdict": "revise", "issueCount": 2}
+                ]
+            },
+            "report": {
+                "title": "Figure Gate Failure"
+            }
+        })
+        .to_string();
+
+        let rendered = format_tool_result("survey_report", &output, ThemeKind::Dark, false);
+
+        assert!(rendered.contains("delivery draft_under_review · review revise"));
+        assert!(rendered.contains("Figure Gate Failure"));
+        assert!(rendered.contains("one or more hard quality gates are still failing"));
+        assert!(rendered.contains("unresolved review issues remain after bounded revision"));
+    }
+
+    #[test]
+    fn survey_metadata_rendering_surfaces_dataset_schema_and_coverage() {
+        let output = json!({
+            "dataset": {
+                "path": "/tmp/mini.csv",
+                "workspaceRelativePath": "fixtures/mini.csv",
+                "format": "csv",
+                "rows": 128,
+                "columns": 12
+            },
+            "schema": {
+                "numericColumns": ["q1", "q2", "q3", "q4"],
+                "categoricalColumns": ["segment", "group"],
+                "datetimeColumns": ["submitted_at"]
+            },
+            "missingness": {
+                "totalCells": 1536,
+                "missingCells": 42,
+                "missingRate": 0.0273
+            },
+            "questionnaire": {
+                "scaleCount": 2,
+                "declaredItemCount": 8,
+                "reverseItemCount": 1,
+                "missingDeclaredItems": ["q9"],
+                "unresolvedReverseItems": ["q8"]
+            },
+            "warnings": [
+                "1 declared scale items were not found in the dataset."
+            ]
+        })
+        .to_string();
+
+        let rendered = format_tool_result("survey_metadata", &output, ThemeKind::Dark, false);
+
+        assert!(rendered.contains("survey_metadata"));
+        assert!(rendered.contains("csv dataset · 128 rows · 12 columns"));
+        assert!(rendered.contains("fixtures/mini.csv"));
+        assert!(rendered.contains("numeric 4 · categorical 2 · datetime 1"));
+        assert!(rendered.contains("42/1536 cells · 2.7%"));
+        assert!(rendered.contains("scales 2 · declared items 8 · reverse items 1"));
+        assert!(rendered.contains("missing declared 1 · unresolved reverse 1"));
+        assert!(rendered.contains("1 declared scale items were not found in the dataset."));
+    }
+
+    #[test]
+    fn survey_score_rendering_surfaces_scale_summary_preview_and_artifact() {
+        let output = json!({
+            "dataset": {
+                "workspaceRelativePath": "fixtures/mini.csv",
+                "rows": 128
+            },
+            "scoring": {
+                "scaleCount": 2,
+                "artifact": {
+                    "workspaceRelativePath": ".claw/artifacts/mini_scored.csv"
+                },
+                "previewColumns": ["id", "engagement_mean", "trust_sum"],
+                "scales": [
+                    {
+                        "name": "engagement",
+                        "outputColumn": "engagement_mean",
+                        "method": "mean",
+                        "rowsScored": 120,
+                        "reverseItemsApplied": ["q3"],
+                        "summary": {
+                            "mean": 3.812,
+                            "std": 0.611
+                        }
+                    },
+                    {
+                        "name": "trust",
+                        "outputColumn": "trust_sum",
+                        "method": "sum",
+                        "rowsScored": 118,
+                        "reverseItemsApplied": [],
+                        "summary": {
+                            "mean": 14.4,
+                            "std": 2.1
+                        }
+                    }
+                ]
+            },
+            "warnings": [
+                "Scale engagement: Reverse-scoring bounds were inferred from observed item values. (q3)"
+            ]
+        })
+        .to_string();
+
+        let rendered = format_tool_result("survey_score", &output, ThemeKind::Dark, false);
+
+        assert!(rendered.contains("survey_score"));
+        assert!(rendered.contains("2 scale(s) · 128 rows scored"));
+        assert!(rendered.contains("fixtures/mini.csv"));
+        assert!(rendered.contains(
+            "engagement → engagement_mean · mean · n 120 · mean 3.812 · sd 0.611 · reverse 1"
+        ));
+        assert!(rendered
+            .contains("trust → trust_sum · sum · n 118 · mean 14.400 · sd 2.100 · reverse 0"));
+        assert!(rendered.contains(".claw/artifacts/mini_scored.csv"));
+        assert!(rendered.contains("id, engagement_mean, trust_sum"));
+        assert!(rendered.contains("Reverse-scoring bounds were inferred from observed item values"));
+    }
+
+    #[test]
+    fn survey_psychometrics_rendering_surfaces_reliability_validity_and_cfa_status() {
+        let output = json!({
+            "analysisId": "mini",
+            "dataset": {
+                "workspaceRelativePath": "rust/crates/plugins/bundled/research-survey/fixtures/mini_survey.csv",
+                "analysisItems": ["q1", "q2", "q3", "q4"]
+            },
+            "reliability": {
+                "engagement": {
+                    "completeCases": 4,
+                    "alpha": 0.96618357
+                }
+            },
+            "validity": {
+                "completeCases": 4,
+                "bartlett": {
+                    "chiSquare": 32.87070898,
+                    "df": 6,
+                    "pValue": 0.0000111
+                }
+            },
+            "cfa": null,
+            "warnings": [
+                "Omega skipped for engagement because the item correlation matrix was singular or not positive definite.",
+                "CFA skipped because the observed item correlations were singular or perfectly collinear."
+            ]
+        })
+        .to_string();
+
+        let rendered = format_tool_result("survey_psychometrics", &output, ThemeKind::Dark, false);
+
+        assert!(rendered.contains("survey_psychometrics"));
+        assert!(rendered.contains("mini · 4 item(s) · 1 reliability scale(s)"));
+        assert!(rendered.contains("mini_survey.csv"));
+        assert!(rendered.contains("engagement · α 0.966 · ω not reported · n 4"));
+        assert!(rendered.contains("Bartlett χ² 32.871 (df 6, p 0.000)"));
+        assert!(rendered.contains("skipped / not requested"));
+        assert!(rendered.contains("Omega skipped for engagement"));
+        assert!(rendered.contains(
+            "CFA skipped because the observed item correlations were singular or perfectly collinear."
+        ));
     }
 
     #[test]
